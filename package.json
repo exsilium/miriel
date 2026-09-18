@@ -12,10 +12,14 @@
   "scripts": {
     "build": "tsc -b packages/shared packages/indexer packages/api",
     "clean": "tsc -b --clean packages/shared packages/indexer packages/api",
-    "test": "npm run build && npm test --workspaces --if-present",
-    "migrate": "npm run build && node packages/indexer/dist/cli.js migrate",
-    "indexer": "npm run build && node packages/indexer/dist/cli.js",
-    "retrieve": "npm run build && node packages/api/dist/retrieve-cli.js",
+    "test": "npm test --workspaces --if-present",
+    "pretest": "npm run build",
+    "migrate": "node packages/indexer/dist/cli.js migrate",
+    "premigrate": "npm run build",
+    "indexer": "node packages/indexer/dist/cli.js",
+    "preindexer": "npm run build",
+    "retrieve": "node packages/api/dist/retrieve-cli.js",
+    "preretrieve": "npm run build",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down"
   },
