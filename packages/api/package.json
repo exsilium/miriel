@@ -1,0 +1,19 @@
+{
+  "name": "@miriel/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": ["dist", "prompts"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "retrieve": "node dist/retrieve-cli.js"
+  },
+  "dependencies": {
+    "@miriel/shared": "0.1.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.0"
+  }
+}

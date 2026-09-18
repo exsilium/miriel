@@ -17,7 +17,7 @@ import {
   type BookConfig,
 } from "@miriel/shared";
 import { chunkPage, type Chunk } from "./chunker.js";
-import { createPool } from "./db.js";
+import { createPool } from "@miriel/shared/db";
 import { formatSummary, ingest, loadPageFile, resetBook } from "./ingest.js";
 import { migrate } from "./migrate.js";
 

@@ -17,7 +17,7 @@ import {
   type ExtractedPage,
 } from "@miriel/shared";
 import { chunkPage, embeddingInput, type Chunk, type ChunkOptions, DEFAULT_CHUNK_OPTIONS } from "./chunker.js";
-import { vectorLiteral, withTransaction } from "./db.js";
+import { vectorLiteral, withTransaction } from "@miriel/shared/db";
 
 export interface IngestOptions {
   bookId: string;

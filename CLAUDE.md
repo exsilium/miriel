@@ -12,4 +12,5 @@ RAG chat layer over digitized Elden Ring strategy guides, with page citations.
 - npm workspaces: packages/shared (zod schema, normalizeName, embedding provider), packages/indexer (CLI). Build with `npm run build` (tsc -b), tests with `npm test` (node:test).
 - Book config incl. printed-page to PDF offset: config/books.json (vol1 offset = 1). Migrations: db/migrations/*.sql, applied by `indexer migrate`.
 - Dev database: `docker compose up -d db`, then `node packages/indexer/dist/cli.js migrate|ingest|reset|dump`.
+- Retrieval harness: `npm run retrieve -- "<query>"` (packages/api, see docs/retrieval.md).
 - Never commit node_modules, dist, .env. Chunk dumps contain book text; keep them out of the repo.

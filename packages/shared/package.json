@@ -7,6 +7,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./db": {
+      "types": "./dist/db.d.ts",
+      "default": "./dist/db.js"
     }
   },
   "files": ["dist"],
@@ -16,6 +20,10 @@
   },
   "dependencies": {
     "js-tiktoken": "^1.0.0",
+    "pg": "^8.13.0",
     "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.0"
   }
 }

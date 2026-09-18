@@ -1,11 +1,16 @@
+/**
+ * Postgres helpers shared by indexer and api. Exported from the
+ * "@miriel/shared/db" subpath (not the package root) so browser code that
+ * imports "@miriel/shared" never pulls in `pg`.
+ */
 import pg from "pg";
 
 export const DEFAULT_DATABASE_URL = "postgres://miriel:miriel@localhost:5432/miriel";
 
-export function createPool(connectionString?: string): pg.Pool {
+export function createPool(connectionString?: string, max = 4): pg.Pool {
   return new pg.Pool({
     connectionString: connectionString ?? process.env["DATABASE_URL"] ?? DEFAULT_DATABASE_URL,
-    max: 4,
+    max,
   });
 }
 
@@ -28,3 +33,5 @@ export async function withTransaction<T>(pool: pg.Pool, fn: (client: pg.PoolClie
     client.release();
   }
 }
+
+export type { Pool, PoolClient } from "pg";
