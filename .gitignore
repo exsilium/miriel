@@ -1,0 +1,20 @@
+# Source material - never commit (copyrighted scans)
+*.pdf
+Elden Ring Vol */
+test-pages/
+
+# Extraction output
+out/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets
+.env
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo

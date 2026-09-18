@@ -1,0 +1,11 @@
+{
+  "vol1": {
+    "title": "Elden Ring Vol 1 - The Lands Between",
+    "sourceBook": "Vol 1 - The Lands Between",
+    "pdf": "Elden Ring Vol 1 - The Lands Between.pdf",
+    "imageDir": "Elden Ring Vol 1 - The Lands Between",
+    "imagePattern": "Elden Ring Vol 1 - The Lands Between - {n}.jpg",
+    "printedToPdfOffset": 1,
+    "pageCount": 513
+  }
+}

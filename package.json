@@ -1,0 +1,26 @@
+{
+  "name": "miriel",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -b packages/shared packages/indexer",
+    "clean": "tsc -b --clean packages/shared packages/indexer",
+    "test": "npm run build && npm test --workspaces --if-present",
+    "migrate": "npm run build && node packages/indexer/dist/cli.js migrate",
+    "indexer": "npm run build && node packages/indexer/dist/cli.js",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}
