@@ -11,6 +11,8 @@ export const EMBEDDING_DIM = 1024;
 
 export const BookConfigSchema = z.strictObject({
   title: z.string().min(1),
+  /** Short label for citations and UI pills, e.g. "Vol 1". */
+  label: z.string().min(1),
   /** Value of the `book` field in the extraction JSON ({{BOOK}} in the prompt). */
   sourceBook: z.string().min(1),
   pdf: z.string().min(1),

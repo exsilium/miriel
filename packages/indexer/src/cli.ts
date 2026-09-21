@@ -14,6 +14,7 @@ import {
   loadBooksConfig,
   loadDotEnv,
   EMBEDDING_DIM,
+  describeError,
   type BookConfig,
 } from "@miriel/shared";
 import { chunkPage, type Chunk } from "./chunker.js";
@@ -172,7 +173,7 @@ main(process.argv.slice(2)).then(
     process.exitCode = code;
   },
   (err: unknown) => {
-    log("error: " + (err instanceof Error ? err.message : String(err)));
+    log("error: " + describeError(err));
     process.exitCode = 1;
   },
 );

@@ -3,13 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "files": ["dist", "prompts"],
+  "files": [
+    "dist",
+    "prompts"
+  ],
   "scripts": {
     "build": "tsc -b",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "retrieve": "node dist/retrieve-cli.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.127.0",
     "@miriel/shared": "0.1.0",
     "pg": "^8.13.0"
   },

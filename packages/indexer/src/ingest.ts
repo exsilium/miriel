@@ -209,13 +209,13 @@ function countLinks(page: ExtractedPage): number {
 
 async function upsertBook(pool: pg.Pool, id: string, b: BookConfig): Promise<void> {
   await pool.query(
-    `INSERT INTO books (id, title, source_book, pdf_path, image_dir, image_pattern, printed_to_pdf_offset, page_count)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO books (id, title, label, source_book, pdf_path, image_dir, image_pattern, printed_to_pdf_offset, page_count)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      ON CONFLICT (id) DO UPDATE SET
-       title = EXCLUDED.title, source_book = EXCLUDED.source_book, pdf_path = EXCLUDED.pdf_path,
+       title = EXCLUDED.title, label = EXCLUDED.label, source_book = EXCLUDED.source_book, pdf_path = EXCLUDED.pdf_path,
        image_dir = EXCLUDED.image_dir, image_pattern = EXCLUDED.image_pattern,
        printed_to_pdf_offset = EXCLUDED.printed_to_pdf_offset, page_count = EXCLUDED.page_count`,
-    [id, b.title, b.sourceBook, b.pdf, b.imageDir, b.imagePattern, b.printedToPdfOffset, b.pageCount],
+    [id, b.title, b.label, b.sourceBook, b.pdf, b.imageDir, b.imagePattern, b.printedToPdfOffset, b.pageCount],
   );
 }
 

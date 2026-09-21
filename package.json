@@ -21,7 +21,9 @@
     "retrieve": "node packages/api/dist/retrieve-cli.js",
     "preretrieve": "npm run build",
     "db:up": "docker compose up -d db",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "answer": "node packages/api/dist/answer-cli.js",
+    "preanswer": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^26.6.1",
