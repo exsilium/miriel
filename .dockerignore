@@ -1,0 +1,26 @@
+# Source material and secrets never enter an image
+*.pdf
+Elden Ring Vol */
+test-pages/
+out/
+.env
+
+# Build products and installs are recreated inside the build
+node_modules
+**/node_modules
+**/dist
+
+# Not needed to build or run
+.git
+.venv
+__pycache__
+**/__pycache__
+scripts/
+docs/
+prompts/
+uv.lock
+pyproject.toml
+.python-version
+*.md
+!packages/api/prompts/*.md
+**/*.tsbuildinfo

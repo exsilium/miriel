@@ -1,4 +1,18 @@
-# Phase 1: database only. Later phases add migrate, indexer, api, web.
+# docker compose up                          -> app at http://localhost:3000
+# docker compose --profile index run --rm indexer   -> (re)index vol1 from ./out/vol1
+# docker compose down -v                     -> clean slate (drops the database volume)
+#
+# Secrets and model settings come from .env (see .env.example). The PDF and
+# page images are mounted read-only into the api container at /data.
+
+x-node-image: &node-image
+  build:
+    context: .
+    target: runtime
+  image: miriel-node
+
+x-db-url: &db-url postgres://miriel:miriel@db:5432/miriel
+
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -7,7 +21,7 @@ services:
       POSTGRES_PASSWORD: miriel
       POSTGRES_DB: miriel
     ports:
-      - "5432:5432"
+      - "5432:5432" # for `npm run dev` on the host; remove if unwanted
     volumes:
       - dbdata:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
@@ -16,6 +30,72 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+  migrate:
+    <<: *node-image
+    command: ["node", "packages/indexer/dist/cli.js", "migrate"]
+    environment:
+      DATABASE_URL: *db-url
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  indexer:
+    <<: *node-image
+    profiles: ["index"]
+    entrypoint: ["/sbin/tini", "--", "node", "packages/indexer/dist/cli.js"]
+    command: ["ingest", "--book", "vol1", "--out", "/out/vol1"]
+    env_file: .env
+    environment:
+      DATABASE_URL: *db-url
+    volumes:
+      - ./out:/out:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  api:
+    <<: *node-image
+    command: ["node", "packages/api/dist/main.js"]
+    env_file: .env
+    environment:
+      DATABASE_URL: *db-url
+      DATA_DIR: /data
+      HOST: 0.0.0.0
+      PORT: "8080"
+      CORS_ORIGIN: "" # same origin behind nginx
+      # Overridable from the shell for testing, e.g. CITATIONS_MODE=inline docker compose up -d api
+      CITATIONS_MODE: ${CITATIONS_MODE:-citations}
+      ANSWER_MODEL: ${ANSWER_MODEL:-claude-sonnet-5}
+      RERANK_ENABLED: ${RERANK_ENABLED:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - "./Elden Ring Vol 1 - The Lands Between.pdf:/data/Elden Ring Vol 1 - The Lands Between.pdf:ro"
+      - "./Elden Ring Vol 1 - The Lands Between:/data/Elden Ring Vol 1 - The Lands Between:ro"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/api/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      target: web
+    image: miriel-web
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   dbdata:

@@ -28,7 +28,12 @@
     "preapi": "npm run build",
     "dev:api": "npm run dev -w @miriel/api",
     "build:web": "npm run build -w @miriel/web",
-    "dev:web": "npm run dev -w @miriel/web"
+    "dev:web": "npm run dev -w @miriel/web",
+    "up": "docker compose up --build -d",
+    "index": "docker compose --profile index run --rm indexer",
+    "down": "docker compose down -v",
+    "dev": "node scripts/dev.mjs",
+    "logs": "docker compose logs -f api web"
   },
   "devDependencies": {
     "@types/node": "^26.6.1",
