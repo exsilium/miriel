@@ -21,6 +21,7 @@ import {
 export * from "./types.js";
 export { extractCandidates, isRouteQuestion, ROUTE_RE } from "./candidates.js";
 export { rrfFuse, anchorBoost, selectWithinBudget } from "./fuse.js";
+export { resolveEntities } from "./resolve.js";
 
 export interface RetrieverDeps {
   pool: Pool;

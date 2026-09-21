@@ -10,12 +10,19 @@
   "scripts": {
     "build": "tsc -b",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
-    "retrieve": "node dist/retrieve-cli.js"
+    "retrieve": "node dist/retrieve-cli.js",
+    "start": "node dist/main.js",
+    "dev": "tsx watch src/main.ts",
+    "answer": "node dist/answer-cli.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/static": "^10.1.4",
     "@miriel/shared": "0.1.0",
-    "pg": "^8.13.0"
+    "fastify": "^5.12.5",
+    "pg": "^8.13.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/pg": "^8.11.0"

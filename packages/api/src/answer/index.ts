@@ -133,6 +133,7 @@ async function* run(
   let pendingCitations: Citation[] = [];
 
   const stream = deps.client.messages.stream(params);
+  let completed = false;
   try {
     for await (const event of stream) {
       if (event.type === "content_block_delta") {
@@ -166,6 +167,7 @@ async function* run(
     }
     if (inline) for (const ev of inline.flush()) yield ev;
     const final = await stream.finalMessage();
+    completed = true;
     usage = final.usage;
     stopReason = final.stop_reason ?? stopReason;
     if (final.stop_reason === "refusal") {
@@ -179,6 +181,15 @@ async function* run(
     if (firstTokenMs !== null) yield { type: "error", message: errorMessage };
     logCall();
     throw err;
+  } finally {
+    // The consumer stopped early (client disconnected): stop paying for tokens.
+    if (!completed) {
+      stream.abort();
+      if (!errorMessage) {
+        errorMessage = "aborted by consumer";
+        logCall();
+      }
+    }
   }
 
   const stats: AnswerStats = {

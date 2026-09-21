@@ -23,7 +23,10 @@
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "answer": "node packages/api/dist/answer-cli.js",
-    "preanswer": "npm run build"
+    "preanswer": "npm run build",
+    "api": "node packages/api/dist/main.js",
+    "preapi": "npm run build",
+    "dev:api": "npm run dev -w @miriel/api"
   },
   "devDependencies": {
     "@types/node": "^26.6.1",

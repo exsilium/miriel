@@ -1,0 +1,69 @@
+#!/usr/bin/env node
+/**
+ * API entry point. PORT (8080), HOST (0.0.0.0), DATA_DIR, CORS_ORIGIN,
+ * DATABASE_URL, VOYAGE_API_KEY, ANTHROPIC_API_KEY, RERANK_ENABLED, ...
+ */
+import path from "node:path";
+import Anthropic from "@anthropic-ai/sdk";
+import {
+  createEmbeddingProvider,
+  createRerankProvider,
+  describeError,
+  envFlag,
+  findUp,
+  loadDotEnv,
+} from "@miriel/shared";
+import { createPool } from "@miriel/shared/db";
+import { answer } from "./answer/index.js";
+import { loadBookLabels } from "./books.js";
+import { RETRIEVE_DEFAULTS, resolveEntities, retrieve } from "./retrieval/index.js";
+import { buildServer } from "./server.js";
+
+loadDotEnv();
+
+const port = Number(process.env["PORT"] ?? 8080);
+const host = process.env["HOST"] ?? "0.0.0.0";
+const dataDir = path.resolve(process.env["DATA_DIR"] ?? findUp(path.join("config", "books.json")) ?? process.cwd());
+
+const pool = createPool(undefined, 8);
+const embedder = createEmbeddingProvider();
+const reranker = envFlag("RERANK_ENABLED", false) ? createRerankProvider() : undefined;
+const client = new Anthropic();
+
+/** Book labels rarely change; refresh at most once a minute. */
+let labelsCache: { at: number; value: Record<string, string> } | undefined;
+async function labels(): Promise<Record<string, string>> {
+  if (!labelsCache || Date.now() - labelsCache.at > 60_000) labelsCache = { at: Date.now(), value: await loadBookLabels(pool) };
+  return labelsCache.value;
+}
+
+const app = await buildServer({
+  pool,
+  dataDir,
+  corsOrigin: process.env["CORS_ORIGIN"],
+  retrieve: (query, opts) => retrieve({ pool, embedder, reranker }, query, opts),
+  answer: async function* (input) {
+    yield* answer({ client, labels: await labels(), log: (r) => app.log.info(r, "answer") }, input);
+  },
+  resolvePrior: async (text, bookIds) => {
+    const anchors = await resolveEntities(pool, text, { bookIds, trigramThreshold: RETRIEVE_DEFAULTS.trigramThreshold, routeQuestion: false });
+    return anchors.entities.map((e) => e.nameNorm);
+  },
+});
+
+const shutdown = async (signal: string): Promise<void> => {
+  app.log.info({ signal }, "shutting down");
+  await app.close();
+  await pool.end();
+  process.exit(0);
+};
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+try {
+  await app.listen({ port, host });
+  app.log.info({ dataDir, embedder: embedder.model, rerank: Boolean(reranker) }, "miriel api ready");
+} catch (err) {
+  app.log.error(describeError(err));
+  process.exit(1);
+}
