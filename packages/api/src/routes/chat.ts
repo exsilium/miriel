@@ -58,7 +58,7 @@ export function registerChatRoutes(app: FastifyInstance, deps: ServerDeps): void
     }
 
     reply.hijack();
-    const sse = openSse(reply.raw, request.raw);
+    const sse = openSse(reply.raw);
     try {
       const retrieval = await deps.retrieve(last.content, { bookIds, priorEntities });
       const anchors: AnchorsEvent = {

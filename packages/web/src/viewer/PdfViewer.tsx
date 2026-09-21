@@ -1,0 +1,185 @@
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Document } from "react-pdf";
+import { pdfUrl } from "../api.js";
+import { useAppState } from "../state.js";
+import { PageSlot, type Highlight } from "./PageSlot.js";
+
+const RENDER_WINDOW = 2; // pages rendered on each side of the current one
+const ZOOM_STEPS = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 2.5, 3];
+
+/**
+ * The scanned PDF is ~250 MB. With auto-fetch and streaming off, pdf.js
+ * requests only the byte ranges it needs for the pages being rendered
+ * instead of downloading the whole file in the background.
+ */
+const PDF_OPTIONS = { disableAutoFetch: true, disableStream: true };
+
+export function PdfViewer() {
+  const { book, target, viewerPage, setViewerPage } = useAppState();
+  const offset = book.printedToPdfOffset;
+  const toPdf = useCallback((printed: number) => printed + offset, [offset]);
+  const toPrinted = useCallback((pdfNo: number) => pdfNo - offset, [offset]);
+  const maxPrinted = book.pageCount - offset;
+
+  const [numPages, setNumPages] = useState(0);
+  const [aspect, setAspect] = useState(1.4); // height / width, from the first rendered page
+  const [zoom, setZoom] = useState(1); // 1 = fit width
+  const [imageMode, setImageMode] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [current, setCurrent] = useState(toPdf(viewerPage));
+  const [highlight, setHighlight] = useState<Highlight | null>(null);
+  const [pageInput, setPageInput] = useState(String(viewerPage));
+
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [scrollerWidth, setScrollerWidth] = useState(800);
+
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      if (entry) setScrollerWidth(entry.contentRect.width);
+    });
+    ro.observe(el);
+    setScrollerWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+
+  const pageWidth = Math.max(200, Math.floor((scrollerWidth - 32) * zoom));
+  const pageHeight = Math.round(pageWidth * aspect);
+
+  const file = useMemo(() => pdfUrl(book.id), [book.id]);
+  useEffect(() => {
+    setNumPages(0);
+    setLoadError(null);
+  }, [file]);
+
+  // Navigation target from citations, chips, deep link, toolbar.
+  useEffect(() => {
+    if (!target || target.book !== book.id || numPages === 0) return;
+    const pdfNo = Math.min(Math.max(toPdf(target.page), 1), numPages);
+    setCurrent(pdfNo);
+    setHighlight(target.quote ? { quote: target.quote, nonce: target.nonce } : null);
+    const slot = scrollerRef.current?.querySelector<HTMLElement>('[data-page="' + pdfNo + '"]');
+    slot?.scrollIntoView({ block: "start" });
+  }, [target, book.id, numPages, toPdf]);
+
+  // Track the page nearest the middle of the viewport while scrolling.
+  const rafRef = useRef(0);
+  const onScroll = useCallback(() => {
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      const el = scrollerRef.current;
+      if (!el) return;
+      const mid = el.getBoundingClientRect().top + el.clientHeight / 2;
+      let best = current;
+      let bestDist = Infinity;
+      el.querySelectorAll<HTMLElement>("[data-page]").forEach((slot) => {
+        const r = slot.getBoundingClientRect();
+        const d = Math.abs((r.top + r.bottom) / 2 - mid);
+        if (d < bestDist) {
+          bestDist = d;
+          best = Number(slot.dataset["page"]);
+        }
+      });
+      if (best !== current) setCurrent(best);
+    });
+  }, [current]);
+
+  useEffect(() => {
+    const printed = toPrinted(current);
+    setPageInput(String(printed));
+    if (printed !== viewerPage) setViewerPage(printed);
+  }, [current, toPrinted, viewerPage, setViewerPage]);
+
+  const goToPrinted = (printed: number): void => {
+    const clamped = Math.min(Math.max(printed, 1 - offset), maxPrinted);
+    const pdfNo = toPdf(clamped);
+    setCurrent(pdfNo);
+    setHighlight(null);
+    scrollerRef.current?.querySelector<HTMLElement>('[data-page="' + pdfNo + '"]')?.scrollIntoView({ block: "start" });
+  };
+
+  const zoomIndex = ZOOM_STEPS.indexOf(zoom);
+  const zoomBy = (dir: 1 | -1): void => {
+    const idx = zoomIndex < 0 ? 3 : zoomIndex;
+    const next = ZOOM_STEPS[Math.min(Math.max(idx + dir, 0), ZOOM_STEPS.length - 1)]!;
+    setZoom(next);
+  };
+
+  const slots = useMemo(() => Array.from({ length: numPages }, (_, i) => i + 1), [numPages]);
+
+  return (
+    <section className="viewer" aria-label="Book viewer">
+      <div className="toolbar">
+        <div className="group">
+          <button onClick={() => goToPrinted(toPrinted(current) - 1)} disabled={current <= 1} aria-label="Previous page">
+            ‹
+          </button>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const n = Number(pageInput);
+              if (Number.isInteger(n)) goToPrinted(n);
+            }}
+          >
+            <input className="page-input" value={pageInput} onChange={(e) => setPageInput(e.target.value)} aria-label="Printed page number" inputMode="numeric" />
+          </form>
+          <span className="muted">/ {maxPrinted}</span>
+          <button onClick={() => goToPrinted(toPrinted(current) + 1)} disabled={current >= numPages} aria-label="Next page">
+            ›
+          </button>
+        </div>
+        <div className="group">
+          <button onClick={() => zoomBy(-1)} aria-label="Zoom out">
+            −
+          </button>
+          <span className="muted" style={{ minWidth: "3.5em", textAlign: "center" }}>
+            {Math.round(zoom * 100)}%
+          </span>
+          <button onClick={() => zoomBy(1)} aria-label="Zoom in">
+            +
+          </button>
+          <button onClick={() => setZoom(1)} aria-pressed={zoom === 1}>
+            Fit width
+          </button>
+        </div>
+        <div className="group">
+          <button onClick={() => setImageMode((v) => !v)} aria-pressed={imageMode} title="Show the original page photo instead of the PDF render">
+            Page image
+          </button>
+        </div>
+        <span className="muted" style={{ marginLeft: "auto" }}>
+          {book.label} · PDF page {current}
+        </span>
+      </div>
+
+      <div className="pages" ref={scrollerRef} onScroll={onScroll}>
+        <Document
+          file={file}
+          options={PDF_OPTIONS}
+          onLoadSuccess={(doc) => setNumPages(doc.numPages)}
+          onLoadError={(err) => setLoadError(err.message)}
+          loading={<div className="viewer-status">Loading the PDF…</div>}
+          error={<div className="viewer-status">Could not load the PDF{loadError ? ": " + loadError : ""}.</div>}
+          externalLinkTarget="_blank"
+        >
+          {slots.map((pdfNo) => (
+            <PageSlot
+              key={book.id + ":" + pdfNo}
+              bookId={book.id}
+              pdfNo={pdfNo}
+              printed={toPrinted(pdfNo)}
+              rendered={Math.abs(pdfNo - current) <= RENDER_WINDOW}
+              isCurrent={pdfNo === current}
+              width={pageWidth}
+              height={pageHeight}
+              imageMode={imageMode}
+              highlight={highlight && pdfNo === current ? highlight : null}
+              onAspect={(a) => setAspect((prev) => (Math.abs(prev - a) > 0.001 ? a : prev))}
+            />
+          ))}
+        </Document>
+      </div>
+    </section>
+  );
+}

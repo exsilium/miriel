@@ -59,6 +59,8 @@ const retrieval: RetrievalResult = {
 };
 
 async function* fakeAnswer(input: AnswerInput): AsyncIterable<AnswerEvent> {
+  // A real answer starts well after the request body was consumed; the writer must still be open then.
+  await new Promise((r) => setTimeout(r, 80));
   yield { type: "text", text: "It is in the shack" };
   yield { type: "citation", citation: { book: "vol1", page: 159, quote: "Inside the shack", chunk_idx: 0, heading_path: "h", title: "Vol 1 — p. 159", documentIndex: 0 } };
   yield { type: "text", text: " (history: " + (input.history?.length ?? 0) + ")" };
