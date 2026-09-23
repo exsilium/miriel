@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { pageImageUrl, type Citation } from "../api.js";
+import { pageThumbUrl, type Citation } from "../api.js";
 import { pillToken, renderMarkdown } from "../markdown.js";
 import { useAppState } from "../state.js";
 import type { AssistantMsg, UserMsg } from "./ChatPane.js";
@@ -87,7 +87,7 @@ export function AssistantMessage({ message, onJump, onRetry }: { message: Assist
           <div className="thumbs">
             {anchors.consulted.map((p) => (
               <button key={p.book + ":" + p.page} className="thumb" title={labelOf(p.book) + " · p. " + p.page} onClick={() => onJump(p.book, p.page)}>
-                <img src={pageImageUrl(p.book, p.page)} alt={"Page " + p.page} loading="lazy" decoding="async" />
+                <img src={pageThumbUrl(p.book, p.page)} alt={"Page " + p.page} loading="lazy" decoding="async" />
                 <span>p. {p.page}</span>
               </button>
             ))}

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildLexicalQuery, extractCandidates, isRouteQuestion } from "./candidates.js";
 import { anchorBoost, rrfFuse, selectWithinBudget } from "./fuse.js";
-import { selectSpans } from "./resolve.js";
+import { dropWidespreadTrigram, nearestPages, routeSpan, selectSpans } from "./resolve.js";
 
 test("extractCandidates yields n-grams without leading/trailing stopwords plus the whole query", () => {
   const c = extractCandidates("How do I get from Lenne's Rise to the Meteorite Staff?");
@@ -105,4 +105,38 @@ test("anchorBoost multiplies by 2 on own pages, 1.5 on other anchor pages, and r
 test("selectWithinBudget keeps priority order and skips what does not fit", () => {
   const picked = selectWithinBudget([{ id: 1, tokens: 500 }, { id: 2, tokens: 700 }, { id: 3, tokens: 400 }], 1000);
   assert.deepEqual(picked.map((p) => p.id), [1, 3]);
+});
+
+test("nearestPages keeps the cap closest to the reference pages, same book only", () => {
+  const cands = [10, 11, 50, 90, 91, 200].map((page) => ({ book: "vol1", page }));
+  cands.push({ book: "vol2", page: 12 });
+  const near = nearestPages(cands, [{ book: "vol1", page: 12 }], 3);
+  assert.deepEqual(near, [
+    { book: "vol1", page: 11 },
+    { book: "vol1", page: 10 },
+    { book: "vol1", page: 50 },
+  ]);
+  assert.deepEqual(nearestPages(cands, [], 0), []);
+  // a book without a reference page sorts last
+  const all = nearestPages(cands, [{ book: "vol1", page: 12 }], 10);
+  assert.equal(all[all.length - 1]!.book, "vol2");
+});
+
+test("dropWidespreadTrigram removes fuzzy matches on names spread over many pages but keeps exact ones", () => {
+  const rows = [
+    ...Array.from({ length: 5 }, (_, i) => ({ match: "trigram" as const, name_norm: "golden rune", book_id: "vol1", page: i })),
+    { match: "trigram" as const, name_norm: "golden order seal", book_id: "vol1", page: 7 },
+    { match: "exact" as const, name_norm: "golden rune", book_id: "vol1", page: 9 },
+  ];
+  const kept = dropWidespreadTrigram(rows, 3);
+  assert.deepEqual(kept.map((r) => r.name_norm + ":" + r.match), ["golden order seal:trigram", "golden rune:exact"]);
+  assert.equal(dropWidespreadTrigram(rows, 5).length, rows.length);
+});
+
+test("routeSpan fills the pages between the closest endpoint pages in one book, within the max span", () => {
+  const a = [{ book: "vol1", page: 48 }, { book: "vol1", page: 123 }, { book: "vol1", page: 328 }];
+  const b = [{ book: "vol1", page: 129 }, { book: "vol2", page: 130 }];
+  assert.deepEqual(routeSpan([a, b], 24).map((p) => p.page), [124, 125, 126, 127, 128]);
+  assert.deepEqual(routeSpan([a, b], 3), []);
+  assert.deepEqual(routeSpan([a], 24), []);
 });

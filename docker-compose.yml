@@ -67,6 +67,7 @@ services:
     environment:
       DATABASE_URL: *db-url
       DATA_DIR: /data
+      THUMB_CACHE_DIR: /cache/thumbs
       HOST: 0.0.0.0
       PORT: "8080"
       CORS_ORIGIN: "" # same origin behind nginx
@@ -77,6 +78,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ./data:/data:ro
+      - thumbs:/cache/thumbs
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -102,3 +104,4 @@ services:
 
 volumes:
   dbdata:
+  thumbs: # page thumbnails generated on demand by the api

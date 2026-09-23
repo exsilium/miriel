@@ -49,6 +49,8 @@ COPY --from=build /app/packages/api/dist packages/api/dist
 COPY packages/api/prompts packages/api/prompts
 COPY config ./config
 COPY db/migrations ./db/migrations
+# Thumbnail cache (named volume in compose); created here so the volume inherits node ownership.
+RUN mkdir -p /cache/thumbs && chown -R node:node /cache
 USER node
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "packages/api/dist/main.js"]

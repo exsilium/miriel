@@ -6,6 +6,7 @@
  * provider's batch size. Invalid files are logged and skipped; the caller
  * exits non-zero if any were.
  */
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type pg from "pg";
@@ -27,6 +28,8 @@ export interface IngestOptions {
   pages?: number[] | undefined;
   /** Validate and chunk only: no embedding, no database writes. */
   dryRun: boolean;
+  /** Re-index pages whose source file hash is unchanged (default: skip them as "unchanged"). */
+  force?: boolean | undefined;
   provider: EmbeddingProvider;
   pool: pg.Pool;
   chunkOptions?: ChunkOptions | undefined;
@@ -41,6 +44,8 @@ export interface SkippedFile {
 export interface IngestSummary {
   bookId: string;
   pagesIndexed: number;
+  /** Pages whose file hash matched the stored row and were left alone. */
+  pagesUnchanged: number;
   pagesSkipped: number;
   skipped: SkippedFile[];
   chunks: number;
@@ -57,6 +62,7 @@ interface PreparedPage {
   file: string;
   page: ExtractedPage;
   chunks: Chunk[];
+  sourceHash: string;
 }
 
 const FILE_RE = /^p(\d{4})\.json$/;
@@ -72,15 +78,18 @@ export function listPageFiles(outDir: string, pages?: number[]): string[] {
     .sort();
 }
 
-/** Parse and validate one page file. Returns the page or a human-readable reason. */
-export function loadPageFile(file: string, book: BookConfig): { page: ExtractedPage } | { error: string } {
+/** Parse and validate one page file. Returns the page (+ sha256 of the file) or a human-readable reason. */
+export function loadPageFile(file: string, book: BookConfig): { page: ExtractedPage; sourceHash: string } | { error: string } {
   const m = FILE_RE.exec(path.basename(file));
   if (!m) return { error: "file name does not match pNNNN.json" };
   const fromName = Number(m[1]);
 
   let raw: unknown;
+  let sourceHash = "";
   try {
-    raw = JSON.parse(readFileSync(file, "utf8"));
+    const bytes = readFileSync(file);
+    sourceHash = createHash("sha256").update(bytes).digest("hex");
+    raw = JSON.parse(bytes.toString("utf8"));
   } catch (err) {
     return { error: "invalid JSON: " + (err instanceof Error ? err.message : String(err)) };
   }
@@ -98,7 +107,16 @@ export function loadPageFile(file: string, book: BookConfig): { page: ExtractedP
   if (page.book !== book.sourceBook) {
     return { error: "book field \"" + page.book + "\" does not match configured sourceBook \"" + book.sourceBook + "\"" };
   }
-  return { page };
+  return { page, sourceHash };
+}
+
+/** page -> stored source_hash for one book (pages ingested before migration 0003 have null). */
+async function storedHashes(pool: pg.Pool, bookId: string): Promise<Map<number, string | null>> {
+  const { rows } = await pool.query<{ page: number; source_hash: string | null }>(
+    "SELECT page, source_hash FROM pages WHERE book_id = $1",
+    [bookId],
+  );
+  return new Map(rows.map((r) => [r.page, r.source_hash]));
 }
 
 export async function ingest(o: IngestOptions): Promise<IngestSummary> {
@@ -106,6 +124,7 @@ export async function ingest(o: IngestOptions): Promise<IngestSummary> {
   const summary: IngestSummary = {
     bookId: o.bookId,
     pagesIndexed: 0,
+    pagesUnchanged: 0,
     pagesSkipped: 0,
     skipped: [],
     chunks: 0,
@@ -127,8 +146,9 @@ export async function ingest(o: IngestOptions): Promise<IngestSummary> {
   }
 
   if (!o.dryRun) await upsertBook(o.pool, o.bookId, o.book);
+  const stored = o.dryRun || o.force ? new Map<number, string | null>() : await storedHashes(o.pool, o.bookId);
 
-  // 1. validate + chunk
+  // 1. validate + chunk (pages whose file hash matches the stored row are left alone)
   const prepared: PreparedPage[] = [];
   for (const name of listPageFiles(o.outDir, o.pages)) {
     const file = path.join(o.outDir, name);
@@ -138,8 +158,12 @@ export async function ingest(o: IngestOptions): Promise<IngestSummary> {
       summary.skipped.push({ file: name, reason: loaded.error });
       continue;
     }
+    if (stored.get(loaded.page.page) === loaded.sourceHash) {
+      summary.pagesUnchanged += 1;
+      continue;
+    }
     const chunks = chunkPage(loaded.page, chunkOpts);
-    prepared.push({ file: name, page: loaded.page, chunks });
+    prepared.push({ file: name, page: loaded.page, chunks, sourceHash: loaded.sourceHash });
     o.log(
       "p" + String(loaded.page.page).padStart(4, "0") + ": " + chunks.length + " chunks, " +
         loaded.page.figures.length + " figures, " + loaded.page.entities.length + " entities" +
@@ -147,6 +171,7 @@ export async function ingest(o: IngestOptions): Promise<IngestSummary> {
     );
   }
   summary.pagesSkipped = summary.skipped.length;
+  if (summary.pagesUnchanged) o.log(summary.pagesUnchanged + " page(s) unchanged since the last ingest (use --force to redo)");
 
   // 2. embed in cross-page batches, 3. write each page in its own transaction
   for (const group of groupByBatch(prepared, o.provider.maxBatchSize)) {
@@ -168,7 +193,7 @@ export async function ingest(o: IngestOptions): Promise<IngestSummary> {
       const pageVectors = vectors.slice(offset, offset + p.chunks.length);
       offset += p.chunks.length;
       if (!o.dryRun) {
-        const links = await writePage(o.pool, o.bookId, p.page, p.chunks, pageVectors);
+        const links = await writePage(o.pool, o.bookId, p.page, p.chunks, pageVectors, p.sourceHash);
         summary.entityLinks += links;
       } else {
         summary.entityLinks += countLinks(p.page);
@@ -227,15 +252,16 @@ async function writePage(
   page: ExtractedPage,
   chunks: Chunk[],
   vectors: number[][],
+  sourceHash: string,
 ): Promise<number> {
   return withTransaction(pool, async (c) => {
     // cascades to chunks, figures, entities, entity_links
     await c.query("DELETE FROM pages WHERE book_id = $1 AND page = $2", [bookId, page.page]);
 
     await c.query(
-      `INSERT INTO pages (book_id, page, chapter, region, page_type, markdown, quality)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [bookId, page.page, page.chapter, page.region, page.page_type, page.markdown, JSON.stringify(page.quality)],
+      `INSERT INTO pages (book_id, page, chapter, region, page_type, markdown, quality, source_hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [bookId, page.page, page.chapter, page.region, page.page_type, page.markdown, JSON.stringify(page.quality), sourceHash],
     );
 
     for (const [i, f] of page.figures.entries()) {
@@ -291,6 +317,7 @@ export async function resetBook(pool: pg.Pool, bookId: string): Promise<{ pages:
 export function formatSummary(s: IngestSummary): string {
   const rows: [string, string][] = [
     ["pages indexed", String(s.pagesIndexed)],
+    ["pages unchanged", String(s.pagesUnchanged)],
     ["pages skipped", String(s.pagesSkipped)],
     ["chunks", String(s.chunks)],
     ["figures", String(s.figures)],

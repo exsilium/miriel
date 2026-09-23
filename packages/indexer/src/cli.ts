@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * indexer migrate
- * indexer ingest --book <id> [--out ./out/<id>] [--pages 33,73] [--dry-run] [--provider fake]
+ * indexer ingest --book <id> [--out ./out/<id>] [--pages 33,73] [--dry-run] [--force] [--provider fake]
  * indexer ingest --all [--out ./out]           # every book in config/books.json, from <out>/<id>/
  * indexer reset  --book <id>
  * indexer dump   --book <id> --page 159        # chunks as stored in the database
@@ -26,10 +26,12 @@ import { migrate } from "./migrate.js";
 
 const USAGE = `usage:
   indexer migrate
-  indexer ingest --book <id> [--out <dir>] [--pages 33,73] [--dry-run] [--provider voyage|fake]
-  indexer ingest --all [--out <root>] [--dry-run] [--provider voyage|fake]
+  indexer ingest --book <id> [--out <dir>] [--pages 33,73] [--dry-run] [--force] [--provider voyage|fake]
+  indexer ingest --all [--out <root>] [--dry-run] [--force] [--provider voyage|fake]
                          every configured book from <root>/<id>/ (default <repo>/out); a book without
                          output gets its books row and a warning, so it is browsable before extraction
+                         Pages whose file hash is unchanged since the last ingest are skipped
+                         ("unchanged" in the summary); --force re-indexes them.
   indexer reset  --book <id>
   indexer dump   --book <id> --page <n>
   indexer dump   --file <pNNNN.json>
@@ -55,6 +57,7 @@ async function main(argv: string[]): Promise<number> {
       page: { type: "string" },
       file: { type: "string" },
       "dry-run": { type: "boolean", default: false },
+      force: { type: "boolean", default: false },
       provider: { type: "string" },
       "database-url": { type: "string" },
       env: { type: "string" },
@@ -97,7 +100,7 @@ async function main(argv: string[]): Promise<number> {
           if (!dryRun) await upsertBook(pool, bookId, book);
           continue;
         }
-        const summary = await ingest({ bookId, book, outDir, dryRun, provider, pool, log });
+        const summary = await ingest({ bookId, book, outDir, dryRun, force: values.force, provider, pool, log });
         process.stdout.write(formatSummary(summary) + "\n");
         invalid += summary.pagesSkipped;
       }
@@ -142,7 +145,7 @@ async function main(argv: string[]): Promise<number> {
       }
       const pool = createPool(values["database-url"]);
       try {
-        const summary = await ingest({ bookId, book, outDir, pages, dryRun, provider, pool, log });
+        const summary = await ingest({ bookId, book, outDir, pages, dryRun, force: values.force, provider, pool, log });
         process.stdout.write(formatSummary(summary) + "\n");
         return summary.pagesSkipped > 0 ? 1 : 0;
       } finally {

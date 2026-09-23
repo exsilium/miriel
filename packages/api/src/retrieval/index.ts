@@ -21,7 +21,7 @@ import {
 export * from "./types.js";
 export { extractCandidates, isRouteQuestion, ROUTE_RE } from "./candidates.js";
 export { rrfFuse, anchorBoost, selectWithinBudget } from "./fuse.js";
-export { resolveEntities } from "./resolve.js";
+export { resolveEntities, nearestPages, dropWidespreadTrigram, routeSpan } from "./resolve.js";
 
 export interface RetrieverDeps {
   pool: Pool;
@@ -61,6 +61,9 @@ export async function retrieve(deps: RetrieverDeps, query: string, opts: Retriev
         bookIds: opts.bookIds,
         priorEntities: opts.priorEntities,
         trigramThreshold: opts.trigramThreshold ?? d.trigramThreshold,
+        trigramMaxPages: opts.trigramMaxPages ?? d.trigramMaxPages,
+        regionPageCap: opts.regionPageCap ?? d.regionPageCap,
+        routeSpanMax: opts.routeSpanMax ?? d.routeSpanMax,
         routeQuestion,
       }),
     ),
@@ -111,11 +114,19 @@ export async function retrieve(deps: RetrieverDeps, query: string, opts: Retriev
     context_kind: "chunk",
   }));
 
-  // 7.3 route questions: full markdown of anchor pages within a token budget
+  // 7.3 route questions: full markdown of anchor pages within a token budget. Two resolved entities of which
+  // at least one is a place ("from Lenne's Rise to the Meteorite Staff" names an item as the destination).
   let pages: RetrievedPage[] = [];
   const locationEntities = anchors.entities.filter((e) => e.isLocation);
-  if (routeQuestion && locationEntities.length >= 2) {
-    pages = await timed("pages", () => routePages(deps.pool, anchors.ownPages, anchors.pages, opts.pageTokenBudget ?? d.pageTokenBudget));
+  if (routeQuestion && anchors.entities.length >= 2 && locationEntities.length >= 1) {
+    const pageScore = new Map<string, number>();
+    for (const f of fused) {
+      const k = pageKey(f.item);
+      pageScore.set(k, Math.max(pageScore.get(k) ?? 0, f.score));
+    }
+    pages = await timed("pages", () =>
+      routePages(deps.pool, anchors.ownPages, anchors.spanPages ?? [], anchors.pages, pageScore, opts.pageTokenBudget ?? d.pageTokenBudget),
+    );
   }
 
   return {
@@ -135,10 +146,25 @@ export async function retrieve(deps: RetrieverDeps, query: string, opts: Retriev
   };
 }
 
-/** Own pages first, then the remaining anchor pages; fill the budget, then order by page. */
-async function routePages(pool: Pool, ownPages: PageRef[], anchorPages: PageRef[], budget: number): Promise<RetrievedPage[]> {
-  const own = new Set(ownPages.map(pageKey));
-  const prioritised = [...ownPages, ...anchorPages.filter((p) => !own.has(pageKey(p)))];
+/**
+ * Own pages first (by best fused chunk score), then the walkthrough pages between the endpoints in page
+ * order, then the remaining anchor pages by score (pages nothing matched come last, by page number); fill
+ * the budget, then order by page.
+ */
+async function routePages(
+  pool: Pool,
+  ownPages: PageRef[],
+  spanPages: PageRef[],
+  anchorPages: PageRef[],
+  pageScore: Map<string, number>,
+  budget: number,
+): Promise<RetrievedPage[]> {
+  const byRelevance = (a: PageRef, b: PageRef): number =>
+    (pageScore.get(pageKey(b)) ?? 0) - (pageScore.get(pageKey(a)) ?? 0) || a.book.localeCompare(b.book) || a.page - b.page;
+  const seen = new Set(ownPages.map(pageKey));
+  const span = spanPages.filter((p) => !seen.has(pageKey(p)));
+  for (const p of span) seen.add(pageKey(p));
+  const prioritised = [...ownPages.slice().sort(byRelevance), ...span, ...anchorPages.filter((p) => !seen.has(pageKey(p))).sort(byRelevance)];
   const rows = await fetchPages(pool, prioritised);
   const byKey = new Map(rows.map((r) => [r.book_id + ":" + r.page, r]));
   const withTokens = prioritised

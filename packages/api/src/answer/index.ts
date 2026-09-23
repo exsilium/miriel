@@ -25,7 +25,8 @@ export { buildDocuments, documentTitle } from "./documents.js";
 export { InlineCitationParser, INLINE_MARKER_RE, labelResolver } from "./inline.js";
 
 export const DEFAULT_ANSWER_MODEL = "claude-sonnet-5";
-export const DEFAULT_MAX_TOKENS = 4096;
+/** Adaptive thinking counts against max_tokens; with 20+ documents in context 4k starved the answer. */
+export const DEFAULT_MAX_TOKENS = 16000;
 
 export interface AnswerDeps {
   client: Anthropic;

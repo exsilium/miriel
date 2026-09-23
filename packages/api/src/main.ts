@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * API entry point. PORT (8080), HOST (0.0.0.0), DATA_DIR, CORS_ORIGIN,
+ * API entry point. PORT (8080), HOST (0.0.0.0), DATA_DIR, THUMB_CACHE_DIR, CORS_ORIGIN,
  * DATABASE_URL, VOYAGE_API_KEY, ANTHROPIC_API_KEY, RERANK_ENABLED, ...
  */
+import os from "node:os";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import {
@@ -38,9 +39,12 @@ async function labels(): Promise<Record<string, string>> {
   return labelsCache.value;
 }
 
+const thumbCacheDir = process.env["THUMB_CACHE_DIR"] || path.join(os.tmpdir(), "miriel-thumbs");
+
 const app = await buildServer({
   pool,
   dataDir,
+  thumbCacheDir,
   corsOrigin: process.env["CORS_ORIGIN"],
   retrieve: (query, opts) => retrieve({ pool, embedder, reranker }, query, opts),
   answer: async function* (input) {
@@ -63,7 +67,7 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
 try {
   await app.listen({ port, host });
-  app.log.info({ dataDir, embedder: embedder.model, rerank: Boolean(reranker) }, "miriel api ready");
+  app.log.info({ dataDir, thumbCacheDir, embedder: embedder.model, rerank: Boolean(reranker) }, "miriel api ready");
 } catch (err) {
   app.log.error(describeError(err));
   process.exit(1);

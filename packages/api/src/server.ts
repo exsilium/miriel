@@ -19,6 +19,8 @@ export interface ServerDeps {
   pool: Pool;
   /** Directory the PDFs and image directories live under (read-only mount in Docker). */
   dataDir: string;
+  /** Where page thumbnails are cached (THUMB_CACHE_DIR; default <tmpdir>/miriel-thumbs). */
+  thumbCacheDir?: string | undefined;
   /** Allowed browser origin in dev (Vite); unset in Compose where nginx serves both. */
   corsOrigin?: string | undefined;
   retrieve: (query: string, opts: RetrieveOptions) => Promise<RetrievalResult>;

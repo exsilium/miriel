@@ -27,6 +27,11 @@ export interface Anchors {
   pages: PageRef[];
   /** Pages the resolved entities themselves appear on (get the x2 boost). */
   ownPages: PageRef[];
+  /**
+   * Route questions: the walkthrough pages between the endpoints' own pages (the guide numbers its stops
+   * in traversal order, so these hold the waypoints). Subset of `pages`.
+   */
+  spanPages?: PageRef[];
 }
 
 export type Why = "vector" | "lexical" | "anchor" | "rerank";
@@ -74,6 +79,12 @@ export interface RetrievalResult {
 export interface RetrieveOptions {
   /** Restrict to these book ids (default: all). */
   bookIds?: string[] | undefined;
+  /** Drop trigram (fuzzy) matches on names that appear on more than this many pages ("Golden Rune"). */
+  trigramMaxPages?: number | undefined;
+  /** Route questions: keep at most this many same-region pages, the nearest to the entities' own pages. */
+  regionPageCap?: number | undefined;
+  /** Route questions: fill in the pages between two endpoints' own pages when they lie within this many pages. */
+  routeSpanMax?: number | undefined;
   /** name_norm values resolved in the previous turn ("how do I get there?"). */
   priorEntities?: string[] | undefined;
   /** Run the rerank stage (default: RERANK_ENABLED env). */
@@ -94,6 +105,9 @@ export const RETRIEVE_DEFAULTS = {
   rerankK: 30,
   rrfK: 60,
   trigramThreshold: 0.6,
+  trigramMaxPages: 40,
+  regionPageCap: 12,
+  routeSpanMax: 24,
   pageTokenBudget: 12_000,
   anchorBoost: 1.5,
   ownPageBoost: 2,
