@@ -25,7 +25,7 @@ const port = Number(process.env["PORT"] ?? 8080);
 const host = process.env["HOST"] ?? "0.0.0.0";
 const dataDir = path.resolve(process.env["DATA_DIR"] ?? findUp(path.join("config", "books.json")) ?? process.cwd());
 
-const pool = createPool(undefined, 8);
+const pool = createPool(undefined, 8, (err) => app.log.warn({ err: err.message }, "postgres pool error (idle client dropped)"));
 const embedder = createEmbeddingProvider();
 const reranker = envFlag("RERANK_ENABLED", false) ? createRerankProvider() : undefined;
 const client = new Anthropic();

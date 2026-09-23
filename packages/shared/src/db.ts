@@ -7,11 +7,19 @@ import pg from "pg";
 
 export const DEFAULT_DATABASE_URL = "postgres://miriel:miriel@localhost:5432/miriel";
 
-export function createPool(connectionString?: string, max = 4): pg.Pool {
-  return new pg.Pool({
+export function createPool(connectionString?: string, max = 4, onError?: (err: Error) => void): pg.Pool {
+  const pool = new pg.Pool({
     connectionString: connectionString ?? process.env["DATABASE_URL"] ?? DEFAULT_DATABASE_URL,
     max,
   });
+  // When Postgres restarts, idle clients emit "error" on the pool. Without a
+  // listener that is an uncaught exception and the process dies; with one,
+  // the client is dropped and the next query reconnects.
+  pool.on("error", (err) => {
+    if (onError) onError(err);
+    else process.stderr.write("[pg pool] " + (err.message || String(err)) + "\n");
+  });
+  return pool;
 }
 
 /** pgvector text literal: "[0.1,0.2,...]" — bind as $n::vector. */
