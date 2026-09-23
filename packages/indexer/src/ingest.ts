@@ -207,7 +207,8 @@ function countLinks(page: ExtractedPage): number {
   return n;
 }
 
-async function upsertBook(pool: pg.Pool, id: string, b: BookConfig): Promise<void> {
+/** Insert or refresh the books row from config. Also used by `ingest --all` for books that have no output yet. */
+export async function upsertBook(pool: pg.Pool, id: string, b: BookConfig): Promise<void> {
   await pool.query(
     `INSERT INTO books (id, title, label, source_book, pdf_path, image_dir, image_pattern, printed_to_pdf_offset, page_count)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)

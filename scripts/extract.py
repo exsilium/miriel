@@ -2,13 +2,15 @@
 
 Pages are always given as PRINTED page numbers (see scripts/pages.py for the mapping).
 
+Books come from config/books.json (--book is required; source files are read from DATA_DIR, see scripts/pages.py).
+
 Examples:
-  uv run python scripts/extract.py 159                    # one page
-  uv run python scripts/extract.py 40-60 73 316           # ranges and singles
-  uv run python scripts/extract.py --fixture --dry-run    # build requests for test-pages/, no API call
-  uv run python scripts/extract.py --fixture              # run the six fixture pages
-  uv run python scripts/extract.py --fixture --force      # re-run even if output exists
-  uv run python scripts/extract.py --retake-report        # list pages flagged for a re-shoot
+  uv run python scripts/extract.py --book vol1 159                    # one page
+  uv run python scripts/extract.py --book vol1 40-60 73 316           # ranges and singles
+  uv run python scripts/extract.py --book vol1 --fixture --dry-run    # build requests for test-pages/vol1/, no API call
+  uv run python scripts/extract.py --book vol1 --fixture              # run the fixture pages (scripts/build_fixture.py)
+  uv run python scripts/extract.py --book vol1 --fixture --force      # re-run even if output exists
+  uv run python scripts/extract.py --book vol1 --retake-report        # list pages flagged for a re-shoot
 
 Credentials: ANTHROPIC_API_KEY in the environment, or in a `.env` file at the repo root
 (one `KEY=value` per line; .env is gitignored). Environment variables win over .env.
@@ -33,7 +35,7 @@ import pymupdf
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pages import BOOKS, FIXTURE_MANIFEST, FIXTURE_PDF, ROOT, Book  # noqa: E402
+from pages import BOOKS, ROOT, Book  # noqa: E402
 from schema import PAGE_SCHEMA  # noqa: E402
 
 PROMPT_PATH = ROOT / "prompts" / "page-extraction-prompt.md"
@@ -101,12 +103,14 @@ class Source:
 
     @classmethod
     def for_fixture(cls, book: Book) -> "Source":
-        if not FIXTURE_MANIFEST.exists() or not FIXTURE_PDF.exists():
-            sys.exit("fixture not built; run scripts/build_fixture.py first")
-        manifest = json.loads(FIXTURE_MANIFEST.read_text())
+        if not book.fixture_manifest.exists() or not book.fixture_pdf.exists():
+            sys.exit(f"fixture for {book.key} not built; run scripts/build_fixture.py --book {book.key} --pages ... first")
+        manifest = json.loads(book.fixture_manifest.read_text(encoding="utf-8"))
+        if manifest.get("book") != book.key:
+            sys.exit(f"{book.fixture_manifest} is for book {manifest.get('book')!r}, not {book.key!r}")
         index_of = {e["printed_page"]: e["fixture_index"] for e in manifest["pages"]}
-        image_of = {e["printed_page"]: FIXTURE_MANIFEST.parent / e["image"] for e in manifest["pages"]}
-        return cls(book, FIXTURE_PDF, index_of, image_of)
+        image_of = {e["printed_page"]: book.fixture_dir / e["image"] for e in manifest["pages"]}
+        return cls(book, book.fixture_pdf, index_of, image_of)
 
     @property
     def pages(self) -> list[int]:
@@ -393,8 +397,8 @@ def main() -> None:
             stream.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("pages", nargs="*", help="printed page numbers: 159, 40-60, 73,316")
-    ap.add_argument("--book", default="vol1", choices=sorted(BOOKS))
-    ap.add_argument("--fixture", action="store_true", help="use test-pages.pdf + test-pages/ (pages filter optional)")
+    ap.add_argument("--book", required=True, choices=sorted(BOOKS), help="book id from config/books.json")
+    ap.add_argument("--fixture", action="store_true", help="use test-pages/<book>/ (pages filter optional)")
     ap.add_argument("--out", type=Path, help="output directory (default out/<book>)")
     ap.add_argument("--dry-run", action="store_true", help="build requests and report sizes; no API calls, no writes")
     ap.add_argument("--show-prompt", action="store_true", help="with --dry-run: print the filled prompt for the first page")
@@ -436,7 +440,7 @@ def main() -> None:
     for p in pages:
         img = source.image_path(p)
         if not img.exists():
-            sys.exit(f"missing image for printed page {p}: {img}")
+            sys.exit(f"missing image for printed page {p}: {img} (is DATA_DIR right?)")
         jobs.append(PageJob(page=p, pdf_index=source.pdf_index(p), image_path=img,
                             ocr_text=source.ocr_text(p), prompt=fill_prompt(body, book, p)))
 

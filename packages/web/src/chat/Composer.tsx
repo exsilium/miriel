@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { fetchEntities, type TypeaheadHit } from "../api.js";
 
+import type { SearchScope } from "../state.js";
+
 interface Props {
   disabled: boolean;
-  bookId: string;
+  /** Restrict the typeahead to this book; undefined = every indexed book. */
+  bookId: string | undefined;
+  /** Search-scope toggle ("this book | all books"); null hides it (single-book install). */
+  scope: { value: SearchScope; bookLabel: string; onChange: (s: SearchScope) => void } | null;
   onSend: (text: string) => void;
   onStop: (() => void) | null;
 }
@@ -15,7 +20,7 @@ export function trailingWords(text: string): { query: string; start: number } | 
   return { query: m[1]!, start: text.length - m[1]!.length };
 }
 
-export function Composer({ disabled, bookId, onSend, onStop }: Props) {
+export function Composer({ disabled, bookId, scope, onSend, onStop }: Props) {
   const [text, setText] = useState("");
   const [hits, setHits] = useState<TypeaheadHit[]>([]);
   const [active, setActive] = useState(-1);
@@ -147,6 +152,17 @@ export function Composer({ disabled, bookId, onSend, onStop }: Props) {
           </button>
         )}
       </form>
+      {scope && (
+        <div className="scope-toggle" role="radiogroup" aria-label="Search scope">
+          <span className="muted">Search:</span>
+          <button type="button" role="radio" aria-checked={scope.value === "book"} onClick={() => scope.onChange("book")}>
+            this book ({scope.bookLabel})
+          </button>
+          <button type="button" role="radio" aria-checked={scope.value === "all"} onClick={() => scope.onChange("all")}>
+            all books
+          </button>
+        </div>
+      )}
     </div>
   );
 }

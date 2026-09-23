@@ -7,6 +7,18 @@
     "imageDir": "Elden Ring Vol 1 - The Lands Between",
     "imagePattern": "Elden Ring Vol 1 - The Lands Between - {n}.jpg",
     "printedToPdfOffset": 1,
-    "pageCount": 513
+    "pageCount": 513,
+    "offsetVerified": "2026-09-23, pages 33,159,200,400"
+  },
+  "vol2": {
+    "title": "Elden Ring Vol 2 - Shards of the Shattering",
+    "label": "Vol 2",
+    "sourceBook": "Vol 2 - Shards of the Shattering",
+    "pdf": "Elden Ring Vol 2 - Shards of the Shattering.pdf",
+    "imageDir": "Elden Ring Vol 2 - Shards Of The Shattering",
+    "imagePattern": "Elden Ring Vol 2 - Shards Of The Shattering - {n}.jpg",
+    "printedToPdfOffset": 1,
+    "pageCount": 530,
+    "offsetVerified": "2026-09-23, pages 11,60,120,200,250,410,470,500,507"
   }
 }

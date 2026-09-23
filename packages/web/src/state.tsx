@@ -1,6 +1,6 @@
 /**
- * App-wide state: the loaded books and the viewer target (which page to
- * show and which quote to highlight). React context only, per the spec.
+ * App-wide state: the loaded books, the viewer target (which page to show and
+ * which quote to highlight) and the search scope. React context only, per the spec.
  */
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import type { Book } from "./api.js";
@@ -13,11 +13,19 @@ export interface ViewerTarget {
   nonce: number;
 }
 
+/** "all": retrieval spans every indexed book (default). "book": only the book open in the viewer. */
+export type SearchScope = "all" | "book";
+
 interface AppState {
   books: Book[];
+  /** The book open in the viewer. */
   book: Book;
   target: ViewerTarget | null;
   goTo: (book: string, page: number, quote?: string | null) => void;
+  /** Book selector: open another book at its first printed page. */
+  selectBook: (book: string) => void;
+  scope: SearchScope;
+  setScope: (scope: SearchScope) => void;
   /** Current page as seen in the viewer (for URL and toolbar). */
   viewerPage: number;
   setViewerPage: (page: number) => void;
@@ -46,11 +54,22 @@ export function AppStateProvider({ books, children }: { books: Book[]; children:
   const [bookId, setBookId] = useState(initial.book.id);
   const [viewerPage, setViewerPageState] = useState(initial.page);
   const [target, setTarget] = useState<ViewerTarget | null>({ book: initial.book.id, page: initial.page, quote: null, nonce: 0 });
+  const [scope, setScope] = useState<SearchScope>("all");
 
   const goTo = useCallback((book: string, page: number, quote: string | null = null) => {
     setBookId(book);
     setTarget((t) => ({ book, page, quote, nonce: (t?.nonce ?? 0) + 1 }));
   }, []);
+
+  const selectBook = useCallback(
+    (book: string) => {
+      if (book === bookId) return;
+      setViewerPageState(1);
+      writeDeepLink(book, 1);
+      goTo(book, 1);
+    },
+    [bookId, goTo],
+  );
 
   const setViewerPage = useCallback(
     (page: number) => {
@@ -62,8 +81,8 @@ export function AppStateProvider({ books, children }: { books: Book[]; children:
 
   const value = useMemo<AppState>(() => {
     const book = books.find((b) => b.id === bookId) ?? books[0]!;
-    return { books, book, target, goTo, viewerPage, setViewerPage };
-  }, [books, bookId, target, goTo, viewerPage, setViewerPage]);
+    return { books, book, target, goTo, selectBook, scope, setScope, viewerPage, setViewerPage };
+  }, [books, bookId, target, goTo, selectBook, scope, viewerPage, setViewerPage]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
  * indexer migrate
- * indexer ingest --book vol1 [--out ./out/vol1] [--pages 33,73] [--dry-run] [--provider fake]
- * indexer reset  --book vol1
- * indexer dump   --book vol1 --page 159        # chunks as stored in the database
- * indexer dump   --file out/vol1/p0159.json    # chunks the chunker would produce, no database
+ * indexer ingest --book <id> [--out ./out/<id>] [--pages 33,73] [--dry-run] [--provider fake]
+ * indexer ingest --all [--out ./out]           # every book in config/books.json, from <out>/<id>/
+ * indexer reset  --book <id>
+ * indexer dump   --book <id> --page 159        # chunks as stored in the database
+ * indexer dump   --file out/<id>/p0159.json    # chunks the chunker would produce, no database
  */
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import {
@@ -19,12 +21,15 @@ import {
 } from "@miriel/shared";
 import { chunkPage, type Chunk } from "./chunker.js";
 import { createPool } from "@miriel/shared/db";
-import { formatSummary, ingest, loadPageFile, resetBook } from "./ingest.js";
+import { formatSummary, ingest, loadPageFile, resetBook, upsertBook } from "./ingest.js";
 import { migrate } from "./migrate.js";
 
 const USAGE = `usage:
   indexer migrate
   indexer ingest --book <id> [--out <dir>] [--pages 33,73] [--dry-run] [--provider voyage|fake]
+  indexer ingest --all [--out <root>] [--dry-run] [--provider voyage|fake]
+                         every configured book from <root>/<id>/ (default <repo>/out); a book without
+                         output gets its books row and a warning, so it is browsable before extraction
   indexer reset  --book <id>
   indexer dump   --book <id> --page <n>
   indexer dump   --file <pNNNN.json>
@@ -44,6 +49,7 @@ async function main(argv: string[]): Promise<number> {
     allowPositionals: true,
     options: {
       book: { type: "string" },
+      all: { type: "boolean", default: false },
       out: { type: "string" },
       pages: { type: "string" },
       page: { type: "string" },
@@ -73,6 +79,34 @@ async function main(argv: string[]): Promise<number> {
     return [id, book];
   };
 
+  /** `ingest --all`: every configured book, in config order. Exit 1 if any page file was invalid. */
+  const ingestAll = async (outRoot: string): Promise<number> => {
+    const dryRun = values["dry-run"];
+    const provider = dryRun ? createEmbeddingProvider({ provider: "fake" }) : createEmbeddingProvider({ provider: values.provider });
+    if (provider.dimension !== EMBEDDING_DIM) {
+      throw new Error("provider dimension " + provider.dimension + " != EMBEDDING_DIM " + EMBEDDING_DIM);
+    }
+    const pool = createPool(values["database-url"]);
+    let invalid = 0;
+    try {
+      for (const [bookId, book] of Object.entries(books)) {
+        const outDir = path.join(outRoot, bookId);
+        log("== " + bookId + " (" + book.label + ") from " + outDir);
+        if (!existsSync(outDir)) {
+          log("warning: no extraction output for " + bookId + " yet; registering the book without pages");
+          if (!dryRun) await upsertBook(pool, bookId, book);
+          continue;
+        }
+        const summary = await ingest({ bookId, book, outDir, dryRun, provider, pool, log });
+        process.stdout.write(formatSummary(summary) + "\n");
+        invalid += summary.pagesSkipped;
+      }
+    } finally {
+      await pool.end();
+    }
+    return invalid > 0 ? 1 : 0;
+  };
+
   switch (command) {
     case "migrate": {
       const pool = createPool(values["database-url"]);
@@ -86,6 +120,10 @@ async function main(argv: string[]): Promise<number> {
     }
 
     case "ingest": {
+      if (values.all) {
+        if (values.book || values.pages) throw new Error("--all cannot be combined with --book or --pages");
+        return ingestAll(values.out ? path.resolve(values.out) : path.join(root, "out"));
+      }
       const [bookId, book] = requireBook();
       const outDir = path.resolve(values.out ?? path.join(root, "out", bookId));
       const pages = values.pages

@@ -37,7 +37,7 @@ const EXAMPLES = [
 ];
 
 export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
-  const { book, goTo } = useAppState();
+  const { book, books, scope, setScope, goTo } = useAppState();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -77,7 +77,12 @@ export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
       abortRef.current = controller;
       let gotDone = false;
       try {
-        const body = { messages: apiMessages, bookIds: [book.id], ...(priorEntities && priorEntities.length ? { priorEntities } : {}) };
+        // scope "all" omits bookIds: the API then retrieves across every indexed book
+        const body = {
+          messages: apiMessages,
+          ...(scope === "book" ? { bookIds: [book.id] } : {}),
+          ...(priorEntities && priorEntities.length ? { priorEntities } : {}),
+        };
         for await (const ev of streamChat(body, controller.signal)) {
           applyEvent(ev, assistantId, updateAssistant);
           if (ev.type === "done") gotDone = true;
@@ -98,7 +103,7 @@ export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
         setBusy(false);
       }
     },
-    [book.id, updateAssistant],
+    [book.id, scope, updateAssistant],
   );
 
   const onSend = useCallback((text: string) => void send(text, messages), [send, messages]);
@@ -126,7 +131,10 @@ export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
       <div className="messages" ref={listRef}>
         {messages.length === 0 && (
           <div className="empty-hint">
-            <p>Ask about the indexed pages of {book.title}. Every claim in an answer carries a page citation; click one to open that page.</p>
+            <p>
+              Ask about the indexed pages of {scope === "book" || books.length === 1 ? book.title : "all " + books.length + " books"}. Every claim in an
+              answer carries a page citation; click one to open that page.
+            </p>
             <ul>
               {EXAMPLES.map((q) => (
                 <li key={q} onClick={() => onSend(q)}>
@@ -140,7 +148,13 @@ export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
           m.role === "user" ? <UserMessage key={m.id} message={m} /> : <AssistantMessage key={m.id} message={m} onJump={jump} onRetry={onRetry} />,
         )}
       </div>
-      <Composer disabled={busy} bookId={book.id} onSend={onSend} onStop={busy ? onStop : null} />
+      <Composer
+        disabled={busy}
+        bookId={scope === "book" ? book.id : undefined}
+        scope={books.length > 1 ? { value: scope, bookLabel: book.label, onChange: setScope } : null}
+        onSend={onSend}
+        onStop={busy ? onStop : null}
+      />
     </section>
   );
 }

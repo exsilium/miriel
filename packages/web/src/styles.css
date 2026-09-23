@@ -93,6 +93,21 @@ button.primary {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.topbar .book-select {
+  max-width: 40vw;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 13px;
+  text-overflow: ellipsis;
+}
+.topbar .book-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 .topbar .spacer {
   flex: 1;
 }
@@ -417,6 +432,23 @@ button.primary {
   color: var(--fg-muted);
   font-size: 0.75em;
   margin-top: 4px;
+}
+.scope-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 0.8em;
+}
+.scope-toggle button {
+  padding: 2px 9px;
+  font-size: inherit;
+  border-radius: 999px;
+}
+.scope-toggle button[aria-checked="true"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
 }
 
 /* ---------------------------------------------------------------- viewer */

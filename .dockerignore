@@ -1,4 +1,5 @@
 # Source material and secrets never enter an image
+data/
 *.pdf
 Elden Ring Vol */
 test-pages/

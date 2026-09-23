@@ -1,6 +1,6 @@
 /**
  * Book-level configuration: config/books.json at the repo root.
- * Paths are relative to DATA_DIR (repo root on the host, /data in Docker).
+ * Paths are relative to DATA_DIR (./data on the host, /data in Docker).
  */
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -21,7 +21,10 @@ export const BookConfigSchema = z.strictObject({
   imagePattern: z.string().includes("{n}"),
   /** printed page + offset = 1-based PDF page number = image number. */
   printedToPdfOffset: z.int(),
+  /** PDF page count (the viewer navigates the PDF); surplus image files are ignored. */
   pageCount: z.int().positive(),
+  /** Operator note written by scripts/check_offset.py --record, e.g. "2026-09-23, pages 11,200,520". */
+  offsetVerified: z.string().optional(),
 });
 
 export const BooksConfigSchema = z.record(z.string().regex(/^[a-z0-9_-]+$/), BookConfigSchema);

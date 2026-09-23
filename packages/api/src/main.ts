@@ -23,7 +23,8 @@ loadDotEnv();
 
 const port = Number(process.env["PORT"] ?? 8080);
 const host = process.env["HOST"] ?? "0.0.0.0";
-const dataDir = path.resolve(process.env["DATA_DIR"] ?? findUp(path.join("config", "books.json")) ?? process.cwd());
+/** Source files: DATA_DIR, else <repo root>/data. Paths in config/books.json are relative to it. */
+const dataDir = path.resolve(process.env["DATA_DIR"] ?? path.join(findUp(path.join("config", "books.json")) ?? process.cwd(), "data"));
 
 const pool = createPool(undefined, 8, (err) => app.log.warn({ err: err.message }, "postgres pool error (idle client dropped)"));
 const embedder = createEmbeddingProvider();

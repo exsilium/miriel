@@ -45,15 +45,25 @@ export function App() {
 }
 
 function Layout() {
-  const { book } = useAppState();
+  const { books, book, selectBook } = useAppState();
   const [pane, setPane] = useState<"chat" | "book">("chat");
   return (
     <div className="app" data-pane={pane}>
       <header className="topbar">
         <h1>Miriel</h1>
-        <span className="book-title" title={book.title}>
-          {book.title}
-        </span>
+        {books.length > 1 ? (
+          <select className="book-select" value={book.id} onChange={(e) => selectBook(e.target.value)} aria-label="Book" title={book.title}>
+            {books.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.title}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="book-title" title={book.title}>
+            {book.title}
+          </span>
+        )}
         <span className="spacer" />
         <div className="pane-toggle" role="tablist">
           <button role="tab" aria-pressed={pane === "chat"} onClick={() => setPane("chat")}>

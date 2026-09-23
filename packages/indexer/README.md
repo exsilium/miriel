@@ -12,6 +12,7 @@ Run from the repo root after `npm install && npm run build`
 ```
 node packages/indexer/dist/cli.js migrate
 node packages/indexer/dist/cli.js ingest --book vol1 [--out ./out/vol1] [--pages 33,73] [--dry-run] [--provider fake]
+node packages/indexer/dist/cli.js ingest --all [--out ./out]   # every book in config/books.json from <out>/<id>/
 node packages/indexer/dist/cli.js reset  --book vol1
 node packages/indexer/dist/cli.js dump   --book vol1 --page 159      # chunks as stored
 node packages/indexer/dist/cli.js dump   --file out/vol1/p0159.json  # chunker output, no database
@@ -22,7 +23,9 @@ Environment: `DATABASE_URL`, `VOYAGE_API_KEY`, optional `EMBEDDINGS_PROVIDER`
 Read from the nearest `.env` walking up from the working directory.
 
 Book configuration (title, source paths, printed-page to PDF offset) lives in
-`config/books.json`; `ingest` upserts it into the `books` table.
+`config/books.json`; `ingest` upserts it into the `books` table. `ingest --all` also
+registers books that have no extraction output yet (with a warning) so the viewer
+can open them before extraction.
 
 ## What ingest does per page
 

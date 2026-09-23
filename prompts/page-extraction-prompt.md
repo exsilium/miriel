@@ -2,14 +2,14 @@
 
 ## Source files
 
-| Book | OCR PDF | Page images |
-|------|---------|-------------|
-| Vol 1 — The Lands Between | `Elden Ring Vol 1 - The Lands Between.pdf` | `./Elden Ring Vol 1 - The Lands Between/` (one image per page) |
-| Vol 2 | *(to be added)* | *(to be added)* |
+All source files live under `data/` (gitignored; `DATA_DIR`). The authoritative list is `config/books.json`; this table mirrors it.
 
-Use the PDF for OCR text (extract the text layer per page) and the image directory for the page image. Match them by page index; confirm the mapping once on a page with a printed page number, since PDF page index and printed page number may be offset by the front matter.
+| Book (config id) | OCR PDF | Page images | `{{BOOK}}` |
+|------|---------|-------------|-----------|
+| Vol 1 — The Lands Between (`vol1`) | `data/Elden Ring Vol 1 - The Lands Between.pdf` (513 pages) | `data/Elden Ring Vol 1 - The Lands Between/` (513 images, `… - N.jpg`) | `Vol 1 - The Lands Between` |
+| Vol 2 — Shards of the Shattering (`vol2`) | `data/Elden Ring Vol 2 - Shards of the Shattering.pdf` (530 pages) | `data/Elden Ring Vol 2 - Shards Of The Shattering/` (532 images; 531–532 are surplus back-matter) | `Vol 2 - Shards of the Shattering` |
 
-Set `{{BOOK}}` to `Vol 1 - The Lands Between` for this book.
+Use the PDF for OCR text (extract the text layer per page) and the image directory for the page image. Match them by page index; confirm the mapping with `scripts/check_offset.py --book <id>` (printed page + `printedToPdfOffset` = PDF page = image number; offset 1 for both volumes, verified 2026-09-23), since PDF page index and printed page number are offset by the front matter.
 
 ## Test run
 
@@ -26,7 +26,7 @@ Before running the whole book, run a small representative subset:
    | Lore / NPC page | 501 | entity extraction without locations |
    | One page you already know is a weak scan | 289 | exercises the quality flagging |
 
-2. **Build a test PDF** containing only those pages, extracted from the source PDF in the same order, saved as `test-pages.pdf` next to the source. Copy the matching page images into `./test-pages/`. This gives a small, reproducible fixture you can re-run every time you change the prompt.
+2. **Build a test PDF** containing only those pages, extracted from the source PDF in the same order, saved with the matching page images and a manifest in `./test-pages/<book>/` (`uv run python scripts/build_fixture.py --book vol1 --pages 159,73,33,316,501,289`). This gives a small, reproducible fixture you can re-run every time you change the prompt.
 
 3. **Run the prompt** once per page: this prompt, the page image at full resolution, the OCR text for that page, with `{{BOOK}}` and `{{PAGE}}` filled in.
 

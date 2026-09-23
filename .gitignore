@@ -1,4 +1,5 @@
-# Source material - never commit (copyrighted scans)
+# Source material - never commit (copyrighted scans). Everything lives under data/ (see DATA_DIR).
+data/
 *.pdf
 Elden Ring Vol */
 test-pages/
