@@ -16,4 +16,5 @@ RAG chat layer over digitized Elden Ring strategy guides, with page citations.
 - HTTP API: `npm run api` (Fastify on PORT 8080; routes in packages/api/src/routes, SSE chat at POST /api/chat). Dev with hot reload: `npm run dev:api` with CORS_ORIGIN set to the Vite origin.
 - Web UI: packages/web (Vite + React + react-pdf). `npm run dev:web` (port 5173, proxies /api to 8080), `npm run build:web` (typecheck + bundle to packages/web/dist). Fuzzy quote highlighting in src/viewer/highlight.ts.
 - Docker: `npm run up` (compose up --build, app at http://localhost:3000), `npm run index` (one-shot indexer, profile "index"), `npm run down` (drops the db volume), `npm run dev` (api + web hot reload against the compose db). Dockerfile targets: runtime (node) and web (nginx); docker/nginx.conf proxies /api with SSE buffering off.
+- Next: docs/build-spec-v2.md (full Vol 1 + Vol 2 extraction and indexing, multi-book, Vol 3 readiness). v1 spec: docs/build-spec.md.
 - Never commit node_modules, dist, .env. Chunk dumps contain book text; keep them out of the repo.
