@@ -4,6 +4,7 @@
  */
 import fastifyCors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
+import { describeError } from "@miriel/shared";
 import type { Pool } from "@miriel/shared/db";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -27,6 +28,18 @@ export interface ServerDeps {
   logger?: boolean | object | undefined;
 }
 
+/** Connection-level Postgres failures: refused/unreachable host, or the server not accepting connections yet. */
+export function isDatabaseDown(error: unknown): boolean {
+  if (error instanceof AggregateError) return error.errors.some(isDatabaseDown);
+  if (!(error instanceof Error)) return false;
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === "string") {
+    if (["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ETIMEDOUT"].includes(code)) return true;
+    if (code === "57P03" || code.startsWith("08")) return true; // cannot_connect_now, connection exceptions
+  }
+  return /connection terminated|timeout expired|Connection terminated unexpectedly/i.test(error.message);
+}
+
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: deps.logger ?? { level: process.env["LOG_LEVEL"] ?? "info" } });
 
@@ -41,6 +54,10 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       return sendProblem(reply, new HttpProblem(400, "Invalid request", "Validation failed.", { errors: error.issues }), request.url);
     }
     const err = error instanceof Error ? error : new Error(String(error));
+    if (isDatabaseDown(error)) {
+      request.log.warn({ err }, "database unavailable");
+      return sendProblem(reply, new HttpProblem(503, "Database unavailable", "The database is not reachable. Is the db container running?"), request.url);
+    }
     const statusCode = (err as { statusCode?: unknown }).statusCode;
     const status = typeof statusCode === "number" && statusCode >= 400 && statusCode <= 599 ? statusCode : 500;
     if (status >= 500) request.log.error({ err }, "unhandled error");
@@ -56,7 +73,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       await deps.pool.query("SELECT 1");
       return { status: "ok", db: "ok" };
     } catch (err) {
-      throw new HttpProblem(503, "Database unavailable", err instanceof Error ? err.message : String(err), { status_text: "degraded" });
+      throw new HttpProblem(503, "Database unavailable", describeError(err), { status_text: "degraded" });
     }
   });
 

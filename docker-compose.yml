@@ -30,6 +30,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    # Same policy as api and web, so a Docker Desktop restart brings the whole stack back.
+    restart: unless-stopped
 
   migrate:
     <<: *node-image

@@ -110,6 +110,21 @@ test("health reports ok, and 503 problem details when the database is down", asy
   assert.equal(res.json().title, "Database unavailable");
 });
 
+test("any route answers 503 Database unavailable when Postgres refuses connections", async () => {
+  const down = {
+    async query() {
+      const e = new Error("connect ECONNREFUSED 172.19.0.2:5432") as NodeJS.ErrnoException;
+      e.code = "ECONNREFUSED";
+      throw new AggregateError([e], "");
+    },
+  } as unknown as Pool;
+  const { app } = await makeApp({ pool: down });
+  const res = await app.inject({ method: "GET", url: "/api/books" });
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.json().title, "Database unavailable");
+  assert.match(res.headers["content-type"] as string, /problem\+json/);
+});
+
 test("GET /api/books returns the public book shape", async () => {
   const { app } = await makeApp();
   const res = await app.inject({ method: "GET", url: "/api/books" });
