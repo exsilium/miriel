@@ -16,6 +16,11 @@ export default defineConfig({
   preview: { port: 4173, proxy },
   build: {
     outDir: "dist",
+    // "static" rather than Vite's default "assets": the first deployed build
+    // served the pdf.js worker with a wrong MIME type under /assets/ and a
+    // one-year immutable cache header, so browsers that saw it keep the bad
+    // copy forever. A new path makes every client fetch fresh files.
+    assetsDir: "static",
     sourcemap: false,
     chunkSizeWarningLimit: 1200,
   },
