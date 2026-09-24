@@ -107,19 +107,20 @@ test("selectWithinBudget keeps priority order and skips what does not fit", () =
   assert.deepEqual(picked.map((p) => p.id), [1, 3]);
 });
 
-test("nearestPages keeps the cap closest to the reference pages, same book only", () => {
+test("nearestPages keeps the cap closest to each book's reference pages, per book", () => {
   const cands = [10, 11, 50, 90, 91, 200].map((page) => ({ book: "vol1", page }));
-  cands.push({ book: "vol2", page: 12 });
+  cands.push(...[300, 12, 40, 5].map((page) => ({ book: "vol2", page })));
   const near = nearestPages(cands, [{ book: "vol1", page: 12 }], 3);
   assert.deepEqual(near, [
     { book: "vol1", page: 11 },
     { book: "vol1", page: 10 },
     { book: "vol1", page: 50 },
+    // vol2 has no reference page: its own cap, in page order
+    { book: "vol2", page: 5 },
+    { book: "vol2", page: 12 },
+    { book: "vol2", page: 40 },
   ]);
   assert.deepEqual(nearestPages(cands, [], 0), []);
-  // a book without a reference page sorts last
-  const all = nearestPages(cands, [{ book: "vol1", page: 12 }], 10);
-  assert.equal(all[all.length - 1]!.book, "vol2");
 });
 
 test("dropWidespreadTrigram removes fuzzy matches on names spread over many pages but keeps exact ones", () => {

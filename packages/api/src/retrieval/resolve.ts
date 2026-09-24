@@ -284,8 +284,9 @@ export function dropWidespreadTrigram<T extends { match: EntityMatch; name_norm:
 }
 
 /**
- * The `cap` candidates closest (by printed-page distance, same book) to any of the reference pages.
- * Candidates in a book without a reference page come last. Ties break by page order.
+ * Per book, the `cap` candidates closest (by printed-page distance) to that book's reference pages. A book
+ * with no reference page keeps its first `cap` candidates in page order, so one book's anchors never
+ * crowd another book out of the expansion. Ties break by page order.
  */
 export function nearestPages(candidates: PageRef[], reference: PageRef[], cap: number): PageRef[] {
   if (cap <= 0 || candidates.length === 0) return [];
@@ -294,11 +295,19 @@ export function nearestPages(candidates: PageRef[], reference: PageRef[], cap: n
     for (const r of reference) if (r.book === p.book) best = Math.min(best, Math.abs(r.page - p.page));
     return best;
   };
-  return candidates
-    .map((p) => ({ p, d: distance(p) }))
-    .sort((a, b) => a.d - b.d || cmpPage(a.p, b.p))
-    .slice(0, cap)
-    .map((x) => x.p);
+  const byBook = new Map<string, PageRef[]>();
+  for (const p of candidates) (byBook.get(p.book) ?? byBook.set(p.book, []).get(p.book)!).push(p);
+  const out: PageRef[] = [];
+  for (const pages of byBook.values()) {
+    out.push(
+      ...pages
+        .map((p) => ({ p, d: distance(p) }))
+        .sort((a, b) => a.d - b.d || cmpPage(a.p, b.p))
+        .slice(0, cap)
+        .map((x) => x.p),
+    );
+  }
+  return out;
 }
 
 const cmpPage = (a: PageRef, b: PageRef): number => a.book.localeCompare(b.book) || a.page - b.page;

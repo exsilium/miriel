@@ -161,10 +161,15 @@ async function routePages(
 ): Promise<RetrievedPage[]> {
   const byRelevance = (a: PageRef, b: PageRef): number =>
     (pageScore.get(pageKey(b)) ?? 0) - (pageScore.get(pageKey(a)) ?? 0) || a.book.localeCompare(b.book) || a.page - b.page;
+  // When a walkthrough span exists, its book's own pages and the span itself come before own pages from other
+  // books: an item's stat entry in another volume can be several thousand tokens and would crowd out the stops.
+  const spanBooks = new Set(spanPages.map((p) => p.book));
+  const ownFirst = ownPages.filter((p) => spanBooks.size === 0 || spanBooks.has(p.book)).sort(byRelevance);
+  const ownLater = ownPages.filter((p) => spanBooks.size > 0 && !spanBooks.has(p.book)).sort(byRelevance);
   const seen = new Set(ownPages.map(pageKey));
   const span = spanPages.filter((p) => !seen.has(pageKey(p)));
   for (const p of span) seen.add(pageKey(p));
-  const prioritised = [...ownPages.slice().sort(byRelevance), ...span, ...anchorPages.filter((p) => !seen.has(pageKey(p))).sort(byRelevance)];
+  const prioritised = [...ownFirst, ...span, ...ownLater, ...anchorPages.filter((p) => !seen.has(pageKey(p))).sort(byRelevance)];
   const rows = await fetchPages(pool, prioritised);
   const byKey = new Map(rows.map((r) => [r.book_id + ":" + r.page, r]));
   const withTokens = prioritised

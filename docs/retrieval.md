@@ -55,7 +55,11 @@ Runs first and in parallel with the query embedding and the lexical search.
    - **Region expansion**: the container entities' remaining pages, plus (route
      questions only) every page sharing the entities' region, capped to the 12
      nearest by page distance to the own pages (`regionPageCap`). On a full
-     book a region has 40-60 pages; uncapped they diluted the boost.
+     book a region has 40-60 pages; uncapped they diluted the boost. The cap
+     applies per book: a book with no own page for the entity (Vol 2 has no
+     region maps) keeps its first 12 pages in page order, so Vol 1's anchors
+     never crowd Vol 2 out ("Which bosses drop Remembrances in Liurnia?" needs
+     Rennala's boss page, Vol 2 p. 210).
    - **Route span** (route questions only): the guide walks each region stop by
      stop in page order, so the pages strictly between the two endpoints' home
      pages (their `walkthrough`-type pages, else any) are added when the gap is
@@ -96,9 +100,12 @@ If it is a route question **and** at least two entities resolved, one of
 them location-typed (`location`, `region`, `dungeon`, `site_of_grace`; the
 other may be an item, as in "from Lenne's Rise to the Meteorite Staff"), the
 full markdown of the anchor pages is added as `pages[]` with
-`context_kind: "page"`. Priority: own pages ordered by their best fused chunk
-score, then the route-span pages in page order, then the remaining anchor
-pages by score (pages nothing matched come last). The 12k-token budget is
+`context_kind: "page"`. Priority: own pages in the route span's book ordered
+by their best fused chunk score, then the route-span pages in page order, then
+own pages from other books, then the remaining anchor pages by score (pages
+nothing matched come last). Other-book own pages come after the span because
+an item's stat entry in Vol 2 runs to 2,000+ tokens and would crowd out the
+walkthrough stops. The 12k-token budget is
 filled greedily (pages that do not fit are skipped, smaller later pages may
 still be taken), and the result is ordered by page number.
 
