@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { streamChat, type AnchorsEvent, type AnswerStats, type ChatEvent, type Citation } from "../api.js";
 import { useAppState } from "../state.js";
+import { rememberVersions } from "../versions.js";
 import { Composer } from "./Composer.js";
 import { AssistantMessage, UserMessage } from "./Message.js";
 
@@ -162,6 +163,7 @@ export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
 function applyEvent(ev: ChatEvent, id: number, update: (id: number, fn: (m: AssistantMsg) => AssistantMsg) => void): void {
   switch (ev.type) {
     case "anchors":
+      rememberVersions(ev.imageVersions);
       update(id, (m) => ({ ...m, anchors: ev }));
       break;
     case "text":
@@ -174,6 +176,7 @@ function applyEvent(ev: ChatEvent, id: number, update: (id: number, fn: (m: Assi
       });
       break;
     case "citation":
+      if (ev.citation.imageVersion) rememberVersions({ [ev.citation.book + ":" + ev.citation.page]: ev.citation.imageVersion });
       update(id, (m) => ({ ...m, segments: [...m.segments, { kind: "citation", citation: ev.citation }] }));
       break;
     case "done":

@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Page } from "react-pdf";
 import { pageImageUrl } from "../api.js";
+import { useImageVersions } from "../versions.js";
 import { findQuote, markItem, type ItemRange } from "./highlight.js";
 
 export interface Highlight {
@@ -31,6 +32,7 @@ export const PageSlot = memo(function PageSlot({ bookId, pdfNo, printed, rendere
   const [flash, setFlash] = useState(false);
   const [noMatch, setNoMatch] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  useImageVersions(); // the photo URL carries the page's version
 
   const ranges = useMemo<Map<number, ItemRange> | null>(() => {
     if (!highlight || !items || imageMode) return null;

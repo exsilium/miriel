@@ -15,7 +15,7 @@ const ZOOM_STEPS = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 2.5, 3];
 const PDF_OPTIONS = { disableAutoFetch: true, disableStream: true };
 
 export function PdfViewer() {
-  const { book, target, viewerPage, setViewerPage } = useAppState();
+  const { book, target, viewerPage, setViewerPage, goTo, refreshBooks } = useAppState();
   const offset = book.printedToPdfOffset;
   const toPdf = useCallback((printed: number) => printed + offset, [offset]);
   const toPrinted = useCallback((pdfNo: number) => pdfNo - offset, [offset]);
@@ -47,11 +47,35 @@ export function PdfViewer() {
   const pageWidth = Math.max(200, Math.floor((scrollerWidth - 32) * zoom));
   const pageHeight = Math.round(pageWidth * aspect);
 
-  const file = useMemo(() => pdfUrl(book.id), [book.id]);
+  // The URL names the PDF revision: after a retake the viewer loads the new file (never byte ranges of both).
+  const file = useMemo(() => pdfUrl(book.id, book.pdfRevision), [book.id, book.pdfRevision]);
   useEffect(() => {
     setNumPages(0);
     setLoadError(null);
   }, [file]);
+
+  // Same book, new revision: reopen at the page being read (the target effect scrolls there once loaded).
+  const viewerPageRef = useRef(viewerPage);
+  viewerPageRef.current = viewerPage;
+  const lastDoc = useRef({ id: book.id, revision: book.pdfRevision });
+  useEffect(() => {
+    const prev = lastDoc.current;
+    lastDoc.current = { id: book.id, revision: book.pdfRevision };
+    if (prev.id === book.id && prev.revision !== book.pdfRevision) goTo(book.id, viewerPageRef.current);
+  }, [book.id, book.pdfRevision, goTo]);
+
+  // A load error may mean the revision is stale (409): re-read the book list once per file.
+  const refreshedFor = useRef<string | null>(null);
+  const onLoadError = useCallback(
+    (err: Error) => {
+      setLoadError(err.message);
+      if (refreshedFor.current !== file) {
+        refreshedFor.current = file;
+        void refreshBooks();
+      }
+    },
+    [file, refreshBooks],
+  );
 
   // Navigation target from citations, chips, deep link, toolbar.
   useEffect(() => {
@@ -158,14 +182,14 @@ export function PdfViewer() {
           file={file}
           options={PDF_OPTIONS}
           onLoadSuccess={(doc) => setNumPages(doc.numPages)}
-          onLoadError={(err) => setLoadError(err.message)}
+          onLoadError={onLoadError}
           loading={<div className="viewer-status">Loading the PDF…</div>}
           error={<div className="viewer-status">Could not load the PDF{loadError ? ": " + loadError : ""}.</div>}
           externalLinkTarget="_blank"
         >
           {slots.map((pdfNo) => (
             <PageSlot
-              key={book.id + ":" + pdfNo}
+              key={book.id + ":" + (book.pdfRevision ?? "") + ":" + pdfNo}
               bookId={book.id}
               pdfNo={pdfNo}
               printed={toPrinted(pdfNo)}

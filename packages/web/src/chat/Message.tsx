@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { pageThumbUrl, type Citation } from "../api.js";
 import { pillToken, renderMarkdown } from "../markdown.js";
 import { useAppState } from "../state.js";
+import { useImageVersions } from "../versions.js";
 import type { AssistantMsg, UserMsg } from "./ChatPane.js";
 
 type Jump = (book: string, page: number, quote?: string | null) => void;
@@ -12,6 +13,7 @@ export function UserMessage({ message }: { message: UserMsg }) {
 
 export function AssistantMessage({ message, onJump, onRetry }: { message: AssistantMsg; onJump: Jump; onRetry: (m: AssistantMsg) => void }) {
   const { books } = useAppState();
+  useImageVersions(); // thumbnail URLs carry the page's photo version
   const labelOf = (book: string): string => books.find((b) => b.id === book)?.label ?? book;
 
   // Text with a sentinel per citation, so pills render exactly where the event arrived.

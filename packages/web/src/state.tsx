@@ -29,6 +29,8 @@ interface AppState {
   /** Current page as seen in the viewer (for URL and toolbar). */
   viewerPage: number;
   setViewerPage: (page: number) => void;
+  /** Re-read the book list now (e.g. the PDF failed to load because a retake replaced it). */
+  refreshBooks: () => Promise<void>;
 }
 
 const Ctx = createContext<AppState | null>(null);
@@ -49,7 +51,7 @@ export function writeDeepLink(book: string, page: number): void {
   window.history.replaceState(null, "", url);
 }
 
-export function AppStateProvider({ books, children }: { books: Book[]; children: ReactNode }) {
+export function AppStateProvider({ books, refreshBooks, children }: { books: Book[]; refreshBooks: () => Promise<void>; children: ReactNode }) {
   const initial = readDeepLink(books);
   const [bookId, setBookId] = useState(initial.book.id);
   const [viewerPage, setViewerPageState] = useState(initial.page);
@@ -81,8 +83,8 @@ export function AppStateProvider({ books, children }: { books: Book[]; children:
 
   const value = useMemo<AppState>(() => {
     const book = books.find((b) => b.id === bookId) ?? books[0]!;
-    return { books, book, target, goTo, selectBook, scope, setScope, viewerPage, setViewerPage };
-  }, [books, bookId, target, goTo, selectBook, scope, viewerPage, setViewerPage]);
+    return { books, book, target, goTo, selectBook, scope, setScope, viewerPage, setViewerPage, refreshBooks };
+  }, [books, bookId, target, goTo, selectBook, scope, viewerPage, setViewerPage, refreshBooks]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

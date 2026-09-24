@@ -73,6 +73,8 @@ async function main(argv: string[]): Promise<number> {
   loadDotEnv(values.env);
   const root = findRepoRoot();
   const books = loadBooksConfig(path.join(root, "config", "books.json"));
+  /** Page photos, for pages.image_sha256 (DATA_DIR, else <repo>/data; skipped with a note when absent). */
+  const dataDir = path.resolve(process.env["DATA_DIR"] ?? path.join(root, "data"));
 
   const requireBook = (): [string, BookConfig] => {
     const id = values.book;
@@ -100,7 +102,7 @@ async function main(argv: string[]): Promise<number> {
           if (!dryRun) await upsertBook(pool, bookId, book);
           continue;
         }
-        const summary = await ingest({ bookId, book, outDir, dryRun, force: values.force, provider, pool, log });
+        const summary = await ingest({ bookId, book, outDir, dryRun, force: values.force, provider, pool, dataDir, log });
         process.stdout.write(formatSummary(summary) + "\n");
         invalid += summary.pagesSkipped;
       }
@@ -145,7 +147,7 @@ async function main(argv: string[]): Promise<number> {
       }
       const pool = createPool(values["database-url"]);
       try {
-        const summary = await ingest({ bookId, book, outDir, pages, dryRun, force: values.force, provider, pool, log });
+        const summary = await ingest({ bookId, book, outDir, pages, dryRun, force: values.force, provider, pool, dataDir, log });
         process.stdout.write(formatSummary(summary) + "\n");
         return summary.pagesSkipped > 0 ? 1 : 0;
       } finally {

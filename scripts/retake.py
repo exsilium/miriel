@@ -640,6 +640,10 @@ class Job:
                     archive.parent.mkdir(parents=True, exist_ok=True)
                     target.replace(archive)
                 copy_atomic(self.work / it["staged"], target)
+            elif not archive.exists():
+                # the new photo is byte-identical to the current one (not a resume: that has the archive already);
+                # keep the version anyway so every logged version can be restored
+                copy_atomic(target, archive)
             rec = {"at": now(), "book": self.book.key, "page": p, "image_no": it["image_no"], "action": self.j["kind"],
                    "version": it["version"], "archived": archive.name, "sha256": it["sha256"],
                    "previous_sha256": it.get("previous_sha256"), "source": Path(it["source"]).name, "txn": self.id}
@@ -697,9 +701,15 @@ class Job:
 
     def do_thumbs(self) -> None:
         root = Path(os.environ.get("THUMB_CACHE_DIR") or Path(tempfile.gettempdir()) / "miriel-thumbs")
+        # the api keys thumbnails by photo version (pN.<version>.jpg; pN.jpg before migration 0005)
+        dropped = 0
         for it in self.j["pages"]:
-            (root / self.book.key / f"p{it['printed']}.jpg").unlink(missing_ok=True)
-        say(f"  thumbnails dropped from {root}; browsers may still show cached page images until versioned URLs (Phase C)")
+            folder = root / self.book.key
+            for f in [folder / f"p{it['printed']}.jpg", *folder.glob(f"p{it['printed']}.*.jpg")] if folder.exists() else []:
+                if f.exists():
+                    f.unlink()
+                    dropped += 1
+        say(f"  {dropped} cached thumbnail(s) dropped from {root}")
 
     # --- report
     def report(self) -> None:

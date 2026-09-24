@@ -12,6 +12,7 @@ import path from "node:path";
 import type pg from "pg";
 import {
   PageSchema,
+  imageFileName,
   normalizeName,
   type BookConfig,
   type EmbeddingProvider,
@@ -33,6 +34,8 @@ export interface IngestOptions {
   provider: EmbeddingProvider;
   pool: pg.Pool;
   chunkOptions?: ChunkOptions | undefined;
+  /** Where the page photos live (DATA_DIR). Without it, pages.image_sha256 is left as it is. */
+  dataDir?: string | undefined;
   log: (msg: string) => void;
 }
 
@@ -55,6 +58,10 @@ export interface IngestSummary {
   embeddingTokens: number;
   embeddingRequests: number;
   embeddingModel: string;
+  /** Pages whose pages.image_sha256 was set or changed (the photo is new or was replaced by a retake). */
+  imageVersionsUpdated: number;
+  /** Indexed pages without a photo file under dataDir. */
+  imagesMissing: number;
   dryRun: boolean;
 }
 
@@ -134,11 +141,13 @@ export async function ingest(o: IngestOptions): Promise<IngestSummary> {
     embeddingTokens: 0,
     embeddingRequests: 0,
     embeddingModel: o.provider.model,
+    imageVersionsUpdated: 0,
+    imagesMissing: 0,
     dryRun: o.dryRun,
   };
 
   if (!existsSync(o.outDir)) throw new Error("output directory not found: " + o.outDir);
-  const dataDir = process.env["DATA_DIR"];
+  const dataDir = o.dataDir;
   if (dataDir) {
     for (const rel of [o.book.pdf, o.book.imageDir]) {
       if (!existsSync(path.join(dataDir, rel))) o.log("warning: " + rel + " not found under DATA_DIR=" + dataDir);
@@ -206,7 +215,51 @@ export async function ingest(o: IngestOptions): Promise<IngestSummary> {
     vectors = [];
   }
 
+  // 4. photo versions for every page in scope, also the unchanged ones (a retake's photo, or a first fill)
+  if (!o.dryRun && dataDir && existsSync(path.join(dataDir, o.book.imageDir))) {
+    const pages = listPageFiles(o.outDir, o.pages).map((f) => Number(FILE_RE.exec(f)![1]));
+    const r = await updateImageVersions(o.pool, o.bookId, o.book, dataDir, pages);
+    summary.imageVersionsUpdated = r.updated;
+    summary.imagesMissing = r.missing;
+    if (r.updated) o.log(r.updated + " page photo version(s) recorded");
+    if (r.missing) o.log("warning: " + r.missing + " indexed page(s) have no photo under " + path.join(dataDir, o.book.imageDir));
+  } else if (!o.dryRun) {
+    o.log("note: page photos not found (DATA_DIR unset or not mounted); image versions left as they are");
+  }
+
   return summary;
+}
+
+export function sha256File(file: string): string {
+  return createHash("sha256").update(readFileSync(file)).digest("hex");
+}
+
+/** Set pages.image_sha256 from the photo files; rows whose value is already right are not touched. */
+export async function updateImageVersions(
+  pool: pg.Pool,
+  bookId: string,
+  book: BookConfig,
+  dataDir: string,
+  pages: number[],
+): Promise<{ updated: number; missing: number }> {
+  const { rows } = await pool.query<{ page: number; image_sha256: string | null }>(
+    "SELECT page, image_sha256 FROM pages WHERE book_id = $1 AND page = ANY($2)",
+    [bookId, pages],
+  );
+  let updated = 0;
+  let missing = 0;
+  for (const r of rows) {
+    const file = path.join(dataDir, book.imageDir, imageFileName(book, r.page));
+    if (!existsSync(file)) {
+      missing += 1;
+      continue;
+    }
+    const sha = sha256File(file);
+    if (sha === r.image_sha256) continue;
+    await pool.query("UPDATE pages SET image_sha256 = $3 WHERE book_id = $1 AND page = $2", [bookId, r.page, sha]);
+    updated += 1;
+  }
+  return { updated, missing };
 }
 
 function groupByBatch(pages: PreparedPage[], maxBatch: number): PreparedPage[][] {
@@ -318,6 +371,7 @@ export function formatSummary(s: IngestSummary): string {
   const rows: [string, string][] = [
     ["pages indexed", String(s.pagesIndexed)],
     ["pages unchanged", String(s.pagesUnchanged)],
+    ["photo versions", String(s.imageVersionsUpdated) + " updated" + (s.imagesMissing ? ", " + s.imagesMissing + " missing" : "")],
     ["pages skipped", String(s.pagesSkipped)],
     ["chunks", String(s.chunks)],
     ["figures", String(s.figures)],

@@ -1,8 +1,14 @@
-import { useEffect, useState } from "react";
-import { fetchBooks, type Book } from "./api.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { fetchBooks, fetchImageVersions, type Book } from "./api.js";
 import { ChatPane } from "./chat/ChatPane.js";
 import { AppStateProvider, useAppState } from "./state.js";
+import { setBookVersions } from "./versions.js";
 import { PdfViewer } from "./viewer/PdfViewer.js";
+
+/** How often the book list (and so each PDF revision) is re-read; also on tab focus. */
+const BOOKS_POLL_MS = 60_000;
+
+const sameBooks = (a: Book[] | null, b: Book[]): boolean => a !== null && JSON.stringify(a) === JSON.stringify(b);
 
 export function App() {
   const [books, setBooks] = useState<Book[] | null>(null);
@@ -15,6 +21,43 @@ export function App() {
       .then(setBooks)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   }, [attempt]);
+
+  // A retake changes a book's pdfRevision: re-read the list now and then, keeping the old array when nothing changed.
+  const refreshBooks = useCallback(async () => {
+    try {
+      const next = await fetchBooks();
+      setBooks((prev) => (sameBooks(prev, next) ? prev : next));
+    } catch {
+      /* keep what we have; the next poll retries */
+    }
+  }, []);
+  const loaded = books !== null;
+  useEffect(() => {
+    if (!loaded) return;
+    const timer = setInterval(() => void refreshBooks(), BOOKS_POLL_MS);
+    const onVisible = (): void => {
+      if (document.visibilityState === "visible") void refreshBooks();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [loaded, refreshBooks]);
+
+  // Photo versions per book, re-read whenever its PDF revision changes (the two change together on a retake).
+  const versionsOf = useRef(new Map<string, string | null>());
+  useEffect(() => {
+    for (const b of books ?? []) {
+      if (versionsOf.current.has(b.id) && versionsOf.current.get(b.id) === b.pdfRevision) continue;
+      versionsOf.current.set(b.id, b.pdfRevision);
+      fetchImageVersions(b.id)
+        .then((r) => setBookVersions(b.id, r.pages))
+        .catch(() => versionsOf.current.delete(b.id));
+    }
+  }, [books]);
 
   if (error) {
     return (
@@ -38,7 +81,7 @@ export function App() {
     );
   }
   return (
-    <AppStateProvider books={books}>
+    <AppStateProvider books={books} refreshBooks={refreshBooks}>
       <Layout />
     </AppStateProvider>
   );

@@ -5,7 +5,7 @@
 #
 # Secrets and model settings come from .env (see .env.example). ./data (PDFs and
 # page-image directories named in config/books.json) is mounted read-only into
-# the api container at /data; ./out is mounted into the indexer at /app/out.
+# the api and indexer containers at /data; ./out is mounted into the indexer at /app/out.
 # Only the retake services (the retake CLI, profile "retake", and retake-worker) mount ./data and ./out
 # read-write.
 
@@ -55,8 +55,10 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: *db-url
+      DATA_DIR: /data # page photos, for pages.image_sha256 (the photo version in image/thumbnail URLs)
     volumes:
       - ./out:/app/out:ro
+      - ./data:/data:ro
     depends_on:
       migrate:
         condition: service_completed_successfully

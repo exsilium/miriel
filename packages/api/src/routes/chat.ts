@@ -9,6 +9,7 @@ import { HttpProblem } from "../problem.js";
 import type { PageRef, RetrievalResult } from "../retrieval/types.js";
 import type { ServerDeps } from "../server.js";
 import { openSse } from "../sse.js";
+import { imageVersionsFor } from "../versions.js";
 import { parse } from "./books.js";
 
 /** The model sees at most this many messages (the question included). */
@@ -33,6 +34,8 @@ export interface AnchorsEvent {
   routeQuestion: boolean;
   /** Every page the answer may draw on, in page order: for the "Pages consulted" strip. */
   consulted: PageRef[];
+  /** "book:page" -> photo version (?v= for image and thumbnail URLs) for the consulted pages. */
+  imageVersions: Record<string, string>;
 }
 
 export function consultedPages(r: RetrievalResult): PageRef[] {
@@ -61,19 +64,28 @@ export function registerChatRoutes(app: FastifyInstance, deps: ServerDeps): void
     const sse = openSse(reply.raw);
     try {
       const retrieval = await deps.retrieve(last.content, { bookIds, priorEntities });
+      const consulted = consultedPages(retrieval);
+      const versions = await imageVersionsFor(deps.pool, consulted);
       const anchors: AnchorsEvent = {
         type: "anchors",
         entities: retrieval.anchors.entities,
         pages: retrieval.anchors.pages,
         ownPages: retrieval.anchors.ownPages,
         routeQuestion: retrieval.routeQuestion,
-        consulted: consultedPages(retrieval),
+        consulted,
+        imageVersions: versions,
       };
       sse.send("anchors", anchors);
 
       for await (const ev of deps.answer({ query: last.content, retrieval, history })) {
         if (!sse.open) break;
-        sse.send(ev.type, ev);
+        if (ev.type === "citation") {
+          const key = ev.citation.book + ":" + ev.citation.page;
+          if (!(key in versions)) Object.assign(versions, await imageVersionsFor(deps.pool, [ev.citation]));
+          sse.send(ev.type, { ...ev, citation: { ...ev.citation, imageVersion: versions[key] ?? null } });
+        } else {
+          sse.send(ev.type, ev);
+        }
       }
     } catch (err) {
       request.log.error({ err }, "chat failed");
