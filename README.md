@@ -22,4 +22,4 @@ npm test
 ```
 
 Harnesses: `npm run retrieve -- "<query>"`, `npm run answer -- [--inline] "<question>"`.
-See `CLAUDE.md` for the layout, `docs/build-spec.md` for the design, `docs/retrieval.md` for how a query flows.
+To add a book, follow `docs/adding-a-book.md`. See `CLAUDE.md` for the layout, `docs/build-spec.md` for the design, `docs/retrieval.md` for how a query flows.
