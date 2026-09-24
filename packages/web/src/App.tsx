@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchBooks, fetchImageVersions, type Book } from "./api.js";
 import { ChatPane } from "./chat/ChatPane.js";
+import { BatchUpload } from "./retakes/BatchUpload.js";
+import { openCount, RetakeProvider, useRetakes } from "./retakes/context.js";
+import { PageRetake } from "./retakes/PageRetake.js";
+import { RetakesView } from "./retakes/RetakesView.js";
+import { navigate, useRoute } from "./route.js";
 import { AppStateProvider, useAppState } from "./state.js";
 import { setBookVersions } from "./versions.js";
 import { PdfViewer } from "./viewer/PdfViewer.js";
@@ -82,18 +87,34 @@ export function App() {
   }
   return (
     <AppStateProvider books={books} refreshBooks={refreshBooks}>
-      <Layout />
+      <RetakeProvider>
+        <Layout />
+      </RetakeProvider>
     </AppStateProvider>
   );
 }
 
 function Layout() {
   const { books, book, selectBook } = useAppState();
+  const { config } = useRetakes();
+  const route = useRoute();
   const [pane, setPane] = useState<"chat" | "book">("chat");
+  const reader = route.name === "reader" || !config; // retake views exist only when the api has retakes on
+  const open = openCount(config);
   return (
-    <div className="app" data-pane={pane}>
+    <div className="app" data-pane={pane} data-view={reader ? "reader" : "retakes"}>
       <header className="topbar">
-        <h1>Miriel</h1>
+        <h1>
+          <a
+            href="/"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate("/?book=" + encodeURIComponent(book.id));
+            }}
+          >
+            Miriel
+          </a>
+        </h1>
         {books.length > 1 ? (
           <select className="book-select" value={book.id} onChange={(e) => selectBook(e.target.value)} aria-label="Book" title={book.title}>
             {books.map((b) => (
@@ -108,6 +129,20 @@ function Layout() {
           </span>
         )}
         <span className="spacer" />
+        {config && (
+          <a
+            className={"retakes-link" + (reader ? "" : " active")}
+            href="/retakes"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate(reader ? "/retakes" : "/?book=" + encodeURIComponent(book.id));
+            }}
+            title={reader ? open + " page(s) need a new photo" : "Back to the reader"}
+          >
+            {reader ? "Retakes" : "Reader"}
+            {reader && open > 0 && <span className="count">{open}</span>}
+          </a>
+        )}
         <div className="pane-toggle" role="tablist">
           <button role="tab" aria-pressed={pane === "chat"} onClick={() => setPane("chat")}>
             Chat
@@ -117,10 +152,22 @@ function Layout() {
           </button>
         </div>
       </header>
-      <div className="panes">
-        <ChatPane onShowBook={() => setPane("book")} />
-        <PdfViewer />
-      </div>
+      {reader ? (
+        <div className="panes">
+          <ChatPane onShowBook={() => setPane("book")} />
+          <PdfViewer />
+        </div>
+      ) : (
+        <main className="retakes-main">
+          {route.name === "retake-page" ? (
+            <PageRetake key={route.book + ":" + route.page} book={route.book} page={route.page} />
+          ) : route.name === "retake-batch" ? (
+            <BatchUpload book={route.book} />
+          ) : (
+            <RetakesView />
+          )}
+        </main>
+      )}
     </div>
   );
 }

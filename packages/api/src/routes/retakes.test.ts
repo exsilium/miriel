@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Pool } from "@miriel/shared/db";
 import { buildServer, type ServerDeps } from "../server.js";
-import { safeName, sniffImage } from "./retakes.js";
+import { canRollBack, queueStatus, safeName, sniffImage, type LogEntry } from "./retakes.js";
 
 const BOOK = {
   id: "vol1", title: "T", label: "Vol 1", page_count: 513, printed_to_pdf_offset: 1,
@@ -125,4 +125,27 @@ test("sniffImage and safeName", () => {
   assert.equal(safeName("../../etc/passwd", "png"), "passwd.png");
   assert.equal(safeName("...", "jpg"), "upload.jpg");
   assert.equal(safeName("päge <1>.png", "png"), "p_ge _1_.png");
+});
+
+test("queueStatus: accept overrides, open jobs are in progress, a finished retake is done or still flagged", () => {
+  assert.equal(queueStatus(true, null), "flagged");
+  assert.equal(queueStatus(true, { kind: "accept", status: "done" }), "accepted");
+  for (const st of ["uploaded", "validated", "rejected", "confirmed", "running", "failed"]) {
+    assert.equal(queueStatus(true, { kind: "retake", status: st }), "in_progress");
+  }
+  assert.equal(queueStatus(false, { kind: "retake", status: "done" }), "done");
+  assert.equal(queueStatus(true, { kind: "retake", status: "done" }), "still_flagged");
+  assert.equal(queueStatus(true, { kind: "retake", status: "rolled_back" }), "flagged");
+});
+
+test("canRollBack follows retake.py: a retake whose version no rollback restored", () => {
+  const e = (action: "retake" | "rollback", version: number, restored?: number): LogEntry => ({
+    at: "", book: "vol1", page: 26, image_no: 27, action, version, archived: "", sha256: "", source: "", txn: "",
+    ...(restored !== undefined ? { restored } : {}),
+  });
+  assert.equal(canRollBack([]), false);
+  assert.equal(canRollBack([e("retake", 1)]), true);
+  assert.equal(canRollBack([e("retake", 1), e("rollback", 2, 1)]), false);
+  assert.equal(canRollBack([e("retake", 1), e("retake", 2), e("rollback", 3, 2)]), true);
+  assert.equal(canRollBack([e("retake", 1), e("retake", 2), e("rollback", 3, 2), e("rollback", 4, 1)]), false);
 });

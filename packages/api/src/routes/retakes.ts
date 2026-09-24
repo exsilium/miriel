@@ -12,9 +12,18 @@
  *   POST /api/retakes/:id/discard                   any job that has not started, or failed before the PDF swap
  *   POST /api/retakes/:id/retry                     failed -> confirmed (resumes from the last completed stage)
  *   POST /api/retakes/rollback   {book, page}       undo the page's latest retake (no model call)
+ *
+ * For the retake UI (§6):
+ *   GET  /api/retakes/config                        token required?, page counts per queue status (404 = retakes off)
+ *   GET  /api/retakes/queue[?book=]                 flagged pages and pages with retake activity, with their status
+ *   GET  /api/retakes/history?book=&page=           photo versions (DATA_DIR log) + jobs of one page
+ *   GET  /api/retakes/:id/upload                    the uploaded photo, for the old / new comparison
+ *   POST /api/retakes/:id/page   {page}             set the page by hand (unmatched batch photo); re-validates
+ *   POST /api/retakes/accept     {book, page, accepted}   mark a flagged page as fine without a retake (or undo)
  */
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Pool } from "@miriel/shared/db";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -22,6 +31,7 @@ import { z } from "zod";
 import { HttpProblem } from "../problem.js";
 import type { ServerDeps } from "../server.js";
 import { openSse } from "../sse.js";
+import { shortVersion } from "../versions.js";
 import { parse, requireBook } from "./books.js";
 
 export interface RetakeConfig {
@@ -49,6 +59,105 @@ const ListQuery = z.object({
   batch: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
 });
 const RollbackBody = z.object({ book: z.string().regex(/^[a-z0-9_-]+$/), page: z.number().int().min(0).max(99_999) });
+const AcceptBody = RollbackBody.extend({ accepted: z.boolean() });
+const PageBody = z.object({ page: z.number().int().min(0).max(99_999) });
+const BookQuery = z.object({ book: z.string().regex(/^[a-z0-9_-]+$/).optional() });
+const HistoryQuery = z.object({ book: z.string().regex(/^[a-z0-9_-]+$/), page: z.coerce.number().int().min(0).max(99_999) });
+
+/** Where a page stands in the retake queue. */
+export type QueueStatus = "flagged" | "in_progress" | "done" | "still_flagged" | "accepted";
+const OPEN_JOB = new Set(["uploaded", "validated", "rejected", "confirmed", "running", "failed"]);
+
+export function queueStatus(flagged: boolean, job: { kind: string; status: string } | null): QueueStatus {
+  if (job?.kind === "accept") return "accepted";
+  if (job && OPEN_JOB.has(job.status)) return "in_progress";
+  if (job?.status === "done") return flagged ? "still_flagged" : "done";
+  return "flagged"; // no job, or the last retake was rolled back
+}
+
+interface QueueRow {
+  book_id: string;
+  page: number;
+  quality: Record<string, unknown>;
+  image_sha256: string | null;
+  job_id: string | null;
+  job_kind: string | null;
+  job_status: string | null;
+  job_message: string | null;
+  job_updated: Date | null;
+  job_txn: string | null;
+}
+
+/** Flagged pages plus every page with retake activity; the latest non-discarded retake/accept job decides the status. */
+async function queueRows(pool: Pool, book: string | undefined, dataDir?: string): Promise<QueueRow[]> {
+  const { rows } = await pool.query<QueueRow>(
+    `WITH latest AS (
+       SELECT DISTINCT ON (book_id, page) book_id, page, id, kind, status, message, updated_at, txn_id
+         FROM retake_jobs
+        WHERE page IS NOT NULL AND kind IN ('retake', 'accept') AND status <> 'discarded'
+        ORDER BY book_id, page, created_at DESC
+     )
+     SELECT p.book_id, p.page, p.quality, p.image_sha256,
+            l.id AS job_id, l.kind AS job_kind, l.status AS job_status, l.message AS job_message, l.updated_at AS job_updated,
+            l.txn_id AS job_txn
+       FROM pages p LEFT JOIN latest l ON l.book_id = p.book_id AND l.page = p.page
+      WHERE ($1::text IS NULL OR p.book_id = $1)
+        AND ((p.quality->>'retake_recommended')::boolean IS TRUE OR l.id IS NOT NULL)
+      ORDER BY p.book_id, p.page`,
+    [book ?? null],
+  );
+  // a finished retake that a CLI rollback undid counts as rolled back
+  const undone = new Set<string>();
+  for (const b of new Set(rows.filter((r) => r.job_status === "done" && r.job_kind === "retake").map((r) => r.book_id))) {
+    const bookRow = await pool.query<{ image_dir: string }>("SELECT image_dir FROM books WHERE id = $1", [b]);
+    if (!bookRow.rows[0] || !dataDir) continue;
+    for (const k of undoneRetakes(await readImageLog(dataDir, bookRow.rows[0].image_dir))) undone.add(b + ":" + k);
+  }
+  for (const r of rows) {
+    if (r.job_kind === "retake" && r.job_status === "done" && undone.has(r.book_id + ":" + r.job_txn + ":" + r.page)) r.job_status = "rolled_back";
+  }
+  return rows;
+}
+
+export interface LogEntry {
+  at: string;
+  book: string;
+  page: number;
+  image_no: number;
+  action: "retake" | "rollback";
+  version: number;
+  restored?: number;
+  archived: string;
+  sha256: string;
+  source: string;
+  txn: string;
+}
+
+/** The retake log retake.py keeps next to the page photos (data/ is read-only here; the api only reads it). */
+async function readImageLog(dataDir: string, imageDir: string): Promise<LogEntry[]> {
+  try {
+    const text = await readFile(path.join(dataDir, imageDir, "_versions", "log.jsonl"), "utf8");
+    return text.split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l) as LogEntry);
+  } catch {
+    return [];
+  }
+}
+
+/** "txn:page" of retakes a later rollback undid (CLI rollbacks are only in the log, not in retake_jobs). */
+export function undoneRetakes(entries: LogEntry[]): Set<string> {
+  const undone = new Set<string>();
+  for (const r of entries.filter((e) => e.action === "rollback")) {
+    const target = entries.find((e) => e.action === "retake" && e.page === r.page && e.version === r.restored);
+    if (target) undone.add(target.txn + ":" + target.page);
+  }
+  return undone;
+}
+
+/** Same rule as retake.py's rollback: a retake that no later rollback has undone. */
+export function canRollBack(entries: LogEntry[]): boolean {
+  const undone = new Set(entries.filter((e) => e.action === "rollback").map((e) => e.restored));
+  return entries.some((e) => e.action === "retake" && !undone.has(e.version));
+}
 
 export interface JobRow {
   id: string;
@@ -294,6 +403,114 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
       );
     }
     return toJob(job);
+  });
+
+  app.get("/api/retakes/config", async () => {
+    const counts: Record<QueueStatus, number> = { flagged: 0, in_progress: 0, done: 0, still_flagged: 0, accepted: 0 };
+    for (const r of await queueRows(deps.pool, undefined, deps.dataDir)) {
+      counts[queueStatus(Boolean(r.quality["retake_recommended"]), r.job_kind ? { kind: r.job_kind, status: r.job_status ?? "" } : null)] += 1;
+    }
+    return { enabled: true, tokenRequired: Boolean(cfg.token), maxUploadBytes: MAX_UPLOAD_BYTES, counts };
+  });
+
+  app.get("/api/retakes/queue", async (request) => {
+    const { book } = parse(BookQuery, request.query);
+    return (await queueRows(deps.pool, book, deps.dataDir)).map((r) => {
+      const q = r.quality;
+      const job = r.job_id ? { id: r.job_id, kind: r.job_kind!, status: r.job_status!, message: r.job_message, updatedAt: r.job_updated } : null;
+      return {
+        book: r.book_id,
+        page: r.page,
+        imageVersion: shortVersion(r.image_sha256),
+        imageQuality: q["image_quality"] ?? null,
+        qualityIssues: (q["quality_issues"] as string[] | undefined) ?? [],
+        retakeRecommended: Boolean(q["retake_recommended"]),
+        retakeReason: q["retake_reason"] ?? null,
+        affectedAreas: q["affected_areas"] ?? null,
+        status: queueStatus(Boolean(q["retake_recommended"]), job),
+        job,
+      };
+    });
+  });
+
+  app.get("/api/retakes/history", async (request) => {
+    const q = parse(HistoryQuery, request.query);
+    const book = await requireBook(deps, q.book);
+    const entries = (await readImageLog(deps.dataDir, book.image_dir)).filter((e) => e.book === q.book && e.page === q.page);
+    const { rows } = await deps.pool.query<JobRow>(
+      "SELECT " + COLUMNS + " FROM retake_jobs WHERE book_id = $1 AND page = $2 ORDER BY created_at DESC LIMIT 100",
+      [q.book, q.page],
+    );
+    const jobs = rows.map(toJob);
+    const versions = [...entries].reverse().map((e) => {
+      const job = jobs.find((j) => j.txnId === e.txn && j.page === e.page && j.kind === e.action);
+      return {
+        at: e.at,
+        action: e.action,
+        keptAs: e.version,
+        restored: e.restored ?? null,
+        source: e.source,
+        imageVersion: shortVersion(e.sha256),
+        txn: e.txn,
+        after: job?.after ?? null,
+      };
+    });
+    return { book: q.book, page: q.page, versions, jobs, canRollBack: canRollBack(entries) };
+  });
+
+  app.get("/api/retakes/:id/upload", async (request, reply) => {
+    const { id } = parse(Id, request.params);
+    const job = await getJob(deps.pool, id);
+    if (!job?.upload_path) throw new HttpProblem(404, "No upload", "Job " + id + " has no uploaded photo.");
+    const file = path.join(cfg.uploadDir, job.upload_path);
+    try {
+      await stat(file);
+    } catch {
+      throw new HttpProblem(404, "No upload", "The photo of job " + id + " is no longer stored (the retake finished or was discarded).");
+    }
+    reply.header("cache-control", "private, no-store");
+    reply.type(file.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg");
+    return reply.send(createReadStream(file));
+  });
+
+  app.post("/api/retakes/:id/page", async (request) => {
+    requireToken(request);
+    const { id } = parse(Id, request.params);
+    const { page } = parse(PageBody, request.body);
+    const job = await getJob(deps.pool, id);
+    if (!job) throw new HttpProblem(404, "Unknown retake job", "No retake job " + id + ".");
+    const book = await requireBook(deps, job.book_id);
+    const first = 1 - book.printed_to_pdf_offset;
+    const last = book.page_count - book.printed_to_pdf_offset;
+    if (page < first || page > last) {
+      throw new HttpProblem(400, "Page out of range", "Printed page " + page + " is not in " + job.book_id + " (" + first + ".." + last + ").");
+    }
+    const { rows } = await deps.pool.query<JobRow>(
+      `UPDATE retake_jobs SET page = $2, status = 'uploaded', folio_check = NULL, error = NULL, before = NULL, estimate_usd = NULL,
+              message = 'page set by hand; waiting for the worker to check the photo', updated_at = now()
+        WHERE id = $1 AND kind = 'retake' AND status IN ('validated', 'rejected') RETURNING ` + COLUMNS,
+      [id, page],
+    );
+    if (!rows[0]) throw new HttpProblem(409, "Wrong job status", "Job " + id + " is " + job.status + "; the page can be set on a validated or rejected photo.");
+    return toJob(rows[0]);
+  });
+
+  app.post("/api/retakes/accept", async (request) => {
+    requireToken(request);
+    const body = parse(AcceptBody, request.body);
+    await requireBook(deps, body.book);
+    await deps.pool.query(
+      "UPDATE retake_jobs SET status = 'discarded', message = 'acceptance withdrawn', updated_at = now() " +
+        "WHERE kind = 'accept' AND book_id = $1 AND page = $2 AND status = 'done'",
+      [body.book, body.page],
+    );
+    if (body.accepted) {
+      await deps.pool.query(
+        "INSERT INTO retake_jobs (book_id, page, kind, status, message) VALUES ($1, $2, 'accept', 'done', 'accepted without a retake')",
+        [body.book, body.page],
+      );
+    }
+    return { book: body.book, page: body.page, accepted: body.accepted };
   });
 
   app.post("/api/retakes/rollback", async (request, reply) => {

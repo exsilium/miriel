@@ -54,11 +54,18 @@ import pymupdf
 from PIL import Image, ImageOps
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from check_offset import FOOTER_BAND, HASH_TOLERANCE, HEADER_BAND, _INT, distance, file_photo, page_numbers_in, pdf_photo  # noqa: E402
+from check_offset import (  # noqa: E402
+    FOOTER_BAND, HASH_TOLERANCE, HEADER_BAND, _INT, distance, file_photo, page_numbers_in, pdf_photo, signature,
+)
 from pages import BOOKS, ROOT, Book, data_dir  # noqa: E402
 
 ASPECT_TOLERANCE = 0.15       # relative deviation from the PDF page's width/height
 FOLIO_NEIGHBOURHOOD = 5       # a folio this close to the expected one means "photo of another page"
+# Perceptual-hash distance (of 64 bits, check_offset.signature) between a new photo and a page's current photo.
+# Measured on Vol 1: simulated re-shoots of the same page (rotation up to 2.5 deg, 6 % crop, +-20 % contrast)
+# stay at 1-12; different pages are 15 and more (neighbours 18+). Up to this value the photo "looks like" the page.
+SAME_PAGE_MAX_DISTANCE = 14
+PHOTO_MATCH_MARGIN = 6        # identifying by photo alone: the best page must beat the runner-up by this much
 PDF_VERSIONS_KEPT = 3
 DEFAULT_PAGE_ESTIMATE_USD = 0.20
 EXTRACT_WORKERS = 4
@@ -338,15 +345,45 @@ def check_folio(book: Book, doc: pymupdf.Document, printed: int, nums: list[int]
     return "unclear", f"folio {printed} not found (numbers read: {', '.join(map(str, nums[:8]))})"
 
 
-def identify_by_folio(book: Book, doc: pymupdf.Document, nums: list[int]) -> int | None:
-    """The printed page whose folio the photo shows: a number read in the band that is also the folio of that page
-    in the current PDF. None unless exactly one fits."""
+def current_signature(book: Book, printed: int) -> str | None:
+    f = file_photo(book.image_path(printed))
+    return f[1] if f else None
+
+
+def photo_distance(book: Book, printed: int, sig: str) -> int | None:
+    """Hash distance between a new photo and the page's current photo (None: no current photo)."""
+    cur = current_signature(book, printed)
+    return None if cur is None else distance(sig, cur)
+
+
+def identify_page(book: Book, doc: pymupdf.Document, nums: list[int], sig: str) -> tuple[int | None, str, str]:
+    """(printed page, how, note) for a photo whose file name carries no page number.
+
+    1. Folio: a number read in the footer/header band that is also that page's folio in the current PDF AND whose
+       current photo looks like the new one (a stray number in a map's footer once matched the wrong page).
+    2. Photo: no usable folio (maps, faint print): the page whose current photo is clearly the closest.
+    """
     hits = []
-    for n in nums:
+    for n in dict.fromkeys(nums):
         if book.first_printed <= n <= book.last_printed and n in page_numbers_in(doc[book.pdf_index(n)]):
-            hits.append(n)
-    hits = list(dict.fromkeys(hits))
-    return hits[0] if len(hits) == 1 else None
+            d = photo_distance(book, n, sig)
+            if d is not None and d <= SAME_PAGE_MAX_DISTANCE:
+                hits.append((d, n))
+    if len(hits) == 1 or (len(hits) > 1 and sorted(hits)[1][0] - sorted(hits)[0][0] >= PHOTO_MATCH_MARGIN):
+        d, n = sorted(hits)[0]
+        return n, "folio", f"folio {n}, photo distance {d}/64 to the current page"
+    scores = []
+    for n in range(book.first_printed, book.last_printed + 1):
+        d = photo_distance(book, n, sig)
+        if d is not None:
+            scores.append((d, n))
+    scores.sort()
+    if scores and scores[0][0] <= SAME_PAGE_MAX_DISTANCE and (len(scores) == 1 or scores[1][0] - scores[0][0] >= PHOTO_MATCH_MARGIN):
+        d, n = scores[0]
+        runner = f", next best p{scores[1][1]} at {scores[1][0]}" if len(scores) > 1 else ""
+        return n, "photo", f"matched by photo: distance {d}/64 to the current p{n}{runner}"
+    best = ", ".join(f"p{n} ({d})" for d, n in scores[:3])
+    return None, "", f"numbers read: {nums[:8] or 'none'}; closest current photos: {best or 'none'}"
 
 
 def validate_photo(book: Book, doc: pymupdf.Document, src: Path, printed: int | None, how: str,
@@ -364,13 +401,15 @@ def validate_photo(book: Book, doc: pymupdf.Document, src: Path, printed: int | 
     item["size"] = list(im.size)
 
     nums = [] if skip_folio else folio_numbers(im)
+    sig = signature(im)
     if printed is None:
-        printed = identify_by_folio(book, doc, nums)
+        printed, how, note = identify_page(book, doc, nums, sig)
         if printed is None:
-            item["errors"].append("no page number in the file name and the folio does not identify a page "
-                                  f"(numbers read: {nums[:8] or 'none'}); rename it page_NNN.jpg (NNN = image number)")
+            item["errors"].append("no page number in the file name and neither the folio nor the photo identifies a page "
+                                  f"({note}); set the page by hand or rename it page_NNN.jpg (NNN = image number)")
             return item
-        item["printed"], item["match"] = printed, "folio"
+        item["printed"], item["match"] = printed, how
+        item["notes"].append(note)
     try:
         idx = book.pdf_index(printed)
     except ValueError as e:
@@ -396,6 +435,16 @@ def validate_photo(book: Book, doc: pymupdf.Document, src: Path, printed: int | 
     current = book.image_path(printed)
     if current.exists() and sha256_file(current) == item["sha256"]:
         item["warnings"].append("identical to the current photo")
+    elif item["match"] in ("--page", "filename") and not item["errors"]:
+        d = photo_distance(book, printed, sig)
+        if d is not None and d > SAME_PAGE_MAX_DISTANCE:
+            other, _, note = identify_page(book, doc, nums, sig)
+            if other is not None and other != printed:
+                # folio and/or photo clearly say another page: same hard stop as a neighbouring folio
+                item["errors"].append(f"this photo looks like printed page {other}, not {printed} ({note})")
+            else:
+                item["warnings"].append(f"does not look like the current photo of page {printed} (distance {d}/64, same page "
+                                        f"is usually <= {SAME_PAGE_MAX_DISTANCE}): is it the right page?")
     return item
 
 

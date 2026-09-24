@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Document } from "react-pdf";
 import { pdfUrl } from "../api.js";
+import { useRetakes } from "../retakes/context.js";
+import { navigate, retakePagePath } from "../route.js";
 import { useAppState } from "../state.js";
 import { PageSlot, type Highlight } from "./PageSlot.js";
 
@@ -16,6 +18,7 @@ const PDF_OPTIONS = { disableAutoFetch: true, disableStream: true };
 
 export function PdfViewer() {
   const { book, target, viewerPage, setViewerPage, goTo, refreshBooks } = useAppState();
+  const { config: retakes } = useRetakes();
   const offset = book.printedToPdfOffset;
   const toPdf = useCallback((printed: number) => printed + offset, [offset]);
   const toPrinted = useCallback((pdfNo: number) => pdfNo - offset, [offset]);
@@ -27,6 +30,8 @@ export function PdfViewer() {
   const [imageMode, setImageMode] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [current, setCurrent] = useState(toPdf(viewerPage));
+  const currentPage = useRef(current);
+  currentPage.current = current;
   const [highlight, setHighlight] = useState<Highlight | null>(null);
   const [pageInput, setPageInput] = useState(String(viewerPage));
 
@@ -46,6 +51,12 @@ export function PdfViewer() {
 
   const pageWidth = Math.max(200, Math.floor((scrollerWidth - 32) * zoom));
   const pageHeight = Math.round(pageWidth * aspect);
+
+  // Every slot changes height when the real page aspect arrives (after the first page loads), on zoom and on
+  // resize; keep the current page in place, or the fixed scroll offset lands on a neighbouring page.
+  useLayoutEffect(() => {
+    scrollerRef.current?.querySelector<HTMLElement>('[data-page="' + currentPage.current + '"]')?.scrollIntoView({ block: "start" });
+  }, [pageHeight]);
 
   // The URL names the PDF revision: after a retake the viewer loads the new file (never byte ranges of both).
   const file = useMemo(() => pdfUrl(book.id, book.pdfRevision), [book.id, book.pdfRevision]);
@@ -171,6 +182,11 @@ export function PdfViewer() {
           <button onClick={() => setImageMode((v) => !v)} aria-pressed={imageMode} title="Show the original page photo instead of the PDF render">
             Page image
           </button>
+          {retakes && (
+            <button onClick={() => navigate(retakePagePath(book.id, toPrinted(current)))} title="Upload a new photo of this page">
+              Retake this page
+            </button>
+          )}
         </div>
         <span className="muted" style={{ marginLeft: "auto" }}>
           {book.label} · PDF page {current}
