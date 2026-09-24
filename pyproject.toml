@@ -8,3 +8,13 @@ dependencies = [
     "pillow>=12.3.0",
     "pymupdf>=1.28.2",
 ]
+
+[dependency-groups]
+# PDF rebuild tooling for scripts/retake.py. Installed only in the Docker `retake` image
+# (uv sync --group retake); needs the tesseract, ghostscript and qpdf binaries from apt.
+# ocrmypdf is pinned to the 16.13 line that produced the book PDFs.
+retake = [
+    "ocrmypdf>=16.13,<16.14",
+    "img2pdf>=0.6",
+    "pikepdf>=9.5",
+]

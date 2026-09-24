@@ -603,6 +603,8 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=1, help="concurrent pages (default 1)")
     ap.add_argument("--no-fallback", action="store_true", help="disable server-side refusal fallback")
     ap.add_argument("--retake-report", action="store_true", help="print pages with quality.retake_recommended=true and exit")
+    ap.add_argument("--run-id", help="tag for this run's _runlog records (default: timestamp + random); scripts/retake.py "
+                    "passes its retake id so a retake's cost can be summed from the log")
     args = ap.parse_args()
 
     book = BOOKS[args.book]
@@ -674,7 +676,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     # max_retries=0: the runner owns retries so a 429 on one worker can pause all of them.
     client = anthropic.Anthropic(max_retries=0, timeout=600.0)
-    run_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
+    run_id = args.run_id or (time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6])
     ctx = RunContext(book=book, client=client, out_dir=out_dir, args=args, run_id=run_id, prompt_sha256=prompt_sha256)
     total = len(jobs)
     unit_price = price_for(args.model)

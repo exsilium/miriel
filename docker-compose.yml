@@ -6,6 +6,7 @@
 # Secrets and model settings come from .env (see .env.example). ./data (PDFs and
 # page-image directories named in config/books.json) is mounted read-only into
 # the api container at /data; ./out is mounted into the indexer at /app/out.
+# Only the retake service (profile "retake") mounts ./data and ./out read-write.
 
 x-node-image: &node-image
   build:
@@ -89,6 +90,33 @@ services:
       retries: 10
       start_period: 5s
     restart: unless-stopped
+
+  # Page retakes (scripts/retake.py), one-shot: npm run retake -- --book vol1 --page 289 --image page_290.jpg
+  # The only service that writes source files: ./data and ./out read-write. Photos are read from
+  # RETAKE_INBOX (default ./retakes); relative --image/--dir paths resolve against it. RETAKE_DATA,
+  # RETAKE_OUT and RETAKE_DATABASE_URL point a run at a sandbox copy instead of the real books.
+  retake:
+    build:
+      context: .
+      target: retake
+    image: miriel-retake
+    profiles: ["retake"]
+    env_file: .env
+    environment:
+      DATABASE_URL: ${RETAKE_DATABASE_URL:-postgres://miriel:miriel@db:5432/miriel}
+      DATA_DIR: /data
+      THUMB_CACHE_DIR: /cache/thumbs
+      RETAKE_INBOX: /retakes
+      RETAKE_DAILY_BUDGET_USD: ${RETAKE_DAILY_BUDGET_USD:-10}
+    volumes:
+      - ${RETAKE_DATA:-./data}:/data
+      - ${RETAKE_OUT:-./out}:/app/out
+      - ${RETAKE_INBOX:-./retakes}:/retakes:ro
+      - thumbs:/cache/thumbs
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
 
   web:
     build:

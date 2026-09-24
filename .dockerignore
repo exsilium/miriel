@@ -11,17 +11,13 @@ node_modules
 **/node_modules
 **/dist
 
-# Not needed to build or run
+# Not needed to build or run (scripts/, prompts/ and the uv project files are used by the retake image)
 .git
 .venv
 __pycache__
 **/__pycache__
-scripts/
 docs/
-prompts/
-uv.lock
-pyproject.toml
-.python-version
 *.md
 !packages/api/prompts/*.md
+!prompts/*.md
 **/*.tsbuildinfo

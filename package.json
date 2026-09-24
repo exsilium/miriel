@@ -31,6 +31,7 @@
     "dev:web": "npm run dev -w @miriel/web",
     "up": "docker compose up --build -d",
     "index": "docker compose --profile index run --rm indexer",
+    "retake": "docker compose --profile retake run --rm --build retake",
     "down": "docker compose down -v",
     "dev": "node scripts/dev.mjs",
     "logs": "docker compose logs -f api web"
