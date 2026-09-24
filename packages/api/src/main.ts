@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * API entry point. PORT (8080), HOST (0.0.0.0), DATA_DIR, THUMB_CACHE_DIR, CORS_ORIGIN,
- * DATABASE_URL, VOYAGE_API_KEY, ANTHROPIC_API_KEY, RERANK_ENABLED, ...
+ * DATABASE_URL, VOYAGE_API_KEY, ANTHROPIC_API_KEY, RERANK_ENABLED, RETAKE_ENABLED, RETAKE_TOKEN, UPLOAD_DIR, ...
  */
 import os from "node:os";
 import path from "node:path";
@@ -40,12 +40,17 @@ async function labels(): Promise<Record<string, string>> {
 }
 
 const thumbCacheDir = process.env["THUMB_CACHE_DIR"] || path.join(os.tmpdir(), "miriel-thumbs");
+/** Page retakes (docs/build-spec-retakes.md): off unless RETAKE_ENABLED; uploads go to UPLOAD_DIR for the worker. */
+const retake = envFlag("RETAKE_ENABLED", false)
+  ? { uploadDir: path.resolve(process.env["UPLOAD_DIR"] || path.join(os.tmpdir(), "miriel-uploads")), token: process.env["RETAKE_TOKEN"] || undefined }
+  : undefined;
 
 const app = await buildServer({
   pool,
   dataDir,
   thumbCacheDir,
   corsOrigin: process.env["CORS_ORIGIN"],
+  retake,
   retrieve: (query, opts) => retrieve({ pool, embedder, reranker }, query, opts),
   answer: async function* (input) {
     yield* answer({ client, labels: await labels(), log: (r) => app.log.info(r, "answer") }, input);
@@ -67,7 +72,10 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
 try {
   await app.listen({ port, host });
-  app.log.info({ dataDir, thumbCacheDir, embedder: embedder.model, rerank: Boolean(reranker) }, "miriel api ready");
+  app.log.info(
+    { dataDir, thumbCacheDir, embedder: embedder.model, rerank: Boolean(reranker), retake: retake ? { uploadDir: retake.uploadDir, token: Boolean(retake.token) } : false },
+    "miriel api ready",
+  );
 } catch (err) {
   app.log.error(describeError(err));
   process.exit(1);

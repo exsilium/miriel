@@ -10,8 +10,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -b packages/shared packages/indexer packages/api",
-    "clean": "tsc -b --clean packages/shared packages/indexer packages/api",
+    "build": "tsc -b packages/shared packages/indexer packages/api packages/worker",
+    "clean": "tsc -b --clean packages/shared packages/indexer packages/api packages/worker",
     "test": "npm test --workspaces --if-present",
     "pretest": "npm run build",
     "migrate": "node packages/indexer/dist/cli.js migrate",

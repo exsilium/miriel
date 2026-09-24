@@ -71,6 +71,16 @@ def say(msg: str = "") -> None:
     print(msg, flush=True)
 
 
+EMIT_PREFIX = "::retake:: "
+_emit = False
+
+
+def emit(event: str, **data) -> None:
+    """Machine-readable progress for the retake worker (--json): one prefixed JSON line per event."""
+    if _emit:
+        print(EMIT_PREFIX + json.dumps({"event": event, **data}, ensure_ascii=False, default=str), flush=True)
+
+
 def now() -> str:
     return dt.datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -518,12 +528,16 @@ class Job:
                 if st in self.j["stages"]:
                     continue
                 say(f"[{self.id}] {st}")
+                emit("stage", stage=st, state="start")
                 getattr(self, "do_" + st)()
                 self.j["stages"][st] = now()
                 self.save()
+                emit("stage", stage=st, state="done")
         except BaseException as e:
             self.j["status"], self.j["error"] = "failed", f"{type(e).__name__}: {e}"
             self.save()
+            emit("result", txn=self.id, kind=self.j["kind"], status="failed", stage=st, error=self.j["error"],
+                 pdf_committed="commit_pdf" in self.j["stages"])
             say(f"\n[{self.id}] FAILED in stage {st}: {e}")
             if "commit_pdf" in self.j["stages"]:
                 say(f"the book PDF was already replaced; finish with --resume {self.id} (rollback afterwards if needed)")
@@ -535,6 +549,14 @@ class Job:
         shutil.rmtree(self.work, ignore_errors=True)
         release_lock(self.store, self.id)
         self.report()
+        self.emit_result()
+
+    def emit_result(self) -> None:
+        costs = self.extracted_ok() if self.j["kind"] == "retake" else {}
+        emit("result", txn=self.id, kind=self.j["kind"], status="done", cost_usd=self.j.get("cost_usd") or 0.0,
+             rolled_back_txn=self.j.get("rolled_back_txn"),
+             pages=[{"printed": it["printed"], "before": it.get("before"), "after": it.get("after"),
+                     "text_chars": it.get("text_chars"), "cost_usd": costs.get(it["printed"], 0.0)} for it in self.j["pages"]])
 
     # --- stages
     def do_stage(self) -> None:
@@ -715,10 +737,11 @@ def refuse_if_unfinished(store: Store) -> None:
         sys.exit(f"unfinished retake(s) for {store.book.key}: {open_jobs}; --resume <id> or --abandon <id> first")
 
 
-def plan_retake(book: Book, uploads: list[tuple[Path, int | None, str]], skip_folio: bool) -> list[dict]:
+def plan_retake(book: Book, uploads: list[tuple[Path, int | None, str, bool]]) -> list[dict]:
+    """uploads: (photo, printed page or None, how the page was given, skip the folio check)."""
     items = []
     with pymupdf.open(book.pdf) as doc:
-        for src, printed, how in uploads:
+        for src, printed, how, skip_folio in uploads:
             say(f"  checking {src.name} ...")
             it = validate_photo(book, doc, src, printed, how, skip_folio)
             n = image_number_from_name(book, src.name)
@@ -759,9 +782,10 @@ def confirm(prompt: str, yes: bool) -> None:
         sys.exit("cancelled; nothing was written")
 
 
-def start(store: Store, kind: str, items: list[dict], estimate: float, yes: bool, dry_run: bool) -> None:
+def start(store: Store, kind: str, items: list[dict], estimate: float, yes: bool, dry_run: bool,
+          txn_id: str | None = None, extra: dict | None = None) -> None:
     book = store.book
-    txn = new_txn_id()
+    txn = txn_id or new_txn_id()
     for it in items:
         it["staged"] = f"p{it['printed']:04d}.jpg"
         it["version"] = store.next_page_version(it["printed"])
@@ -775,7 +799,7 @@ def start(store: Store, kind: str, items: list[dict], estimate: float, yes: bool
     refuse_if_unfinished(store)
     acquire_lock(store, txn)
     j = {"id": txn, "book": book.key, "kind": kind, "created": now(), "status": "running", "stages": {},
-         "estimate_usd": estimate, "cost_usd": 0.0, "pages": items}
+         "estimate_usd": estimate, "cost_usd": 0.0, "pages": items, **(extra or {})}
     job = Job(store, j)
     job.save()
     say(f"retake id {txn} (journal {store.journal(txn).relative_to(data_dir())})")
@@ -805,9 +829,23 @@ def dry(store: Store, items: list[dict]) -> None:
 
 # ----------------------------------------------------------------------------- commands
 
+def upload_for(book: Book, src: Path, printed: int | None, skip_folio: bool) -> tuple[Path, int | None, str, bool]:
+    """Page from the caller, else from the file name, else (at validation) from the folio."""
+    if printed is not None:
+        return src, printed, "--page", skip_folio
+    n = image_number_from_name(book, src.name)
+    return src, None if n is None else n - book.offset, "filename" if n is not None else "folio", skip_folio
+
+
 def cmd_retake(store: Store, args: argparse.Namespace) -> None:
     book = store.book
-    if args.dir:
+    if args.items:
+        spec = json.loads(Path(args.items).read_text(encoding="utf-8"))
+        uploads = [upload_for(book, Path(x["image"]), x.get("page"), bool(x.get("skip_folio")) or args.skip_folio_check) for x in spec]
+        missing = [str(u[0]) for u in uploads if not u[0].is_file()]
+        if missing:
+            sys.exit(f"--items: photos not found: {missing}")
+    elif args.dir:
         folder = resolve_input(args.dir)
         if not folder.is_dir():
             sys.exit(f"--dir: {folder} is not a directory")
@@ -815,22 +853,24 @@ def cmd_retake(store: Store, args: argparse.Namespace) -> None:
                        key=lambda p: [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", p.name)])
         if not files:
             sys.exit(f"no JPEG/PNG files in {folder}")
-        uploads = []
-        for f in files:
-            n = image_number_from_name(book, f.name)
-            uploads.append((f, None if n is None else n - book.offset, "filename" if n is not None else "folio"))
+        uploads = [upload_for(book, f, None, args.skip_folio_check) for f in files]
     else:
         src = resolve_input(args.image)
         if not src.is_file():
             sys.exit(f"--image: {src} not found" + (" (paths are inside the container; put photos in RETAKE_INBOX)" if os.environ.get("RETAKE_INBOX") else ""))
-        uploads = [(src, args.page, "--page")]
+        uploads = [upload_for(book, src, args.page, args.skip_folio_check)]
 
     say(f"validating {len(uploads)} photo(s) for {book.key}")
-    items = plan_retake(book, uploads, args.skip_folio_check)
+    items = plan_retake(book, uploads)
     for it in items:
         if not it["errors"]:
             it["before"] = summary(store.page_json(it["printed"]))
     show_plan(book, items)
+    if args.validate_only:
+        per_page = page_estimate_usd(store)
+        emit("plan", per_page_usd=per_page, items=[{k: v for k, v in it.items() if not k.startswith("_")} for it in items])
+        say(f"\nvalidation only; nothing written (re-extraction ~${per_page:.2f} per page)")
+        return
     bad = [it for it in items if it["errors"]]
     if bad:
         if not args.skip_bad or len(bad) == len(items):
@@ -849,7 +889,7 @@ def cmd_retake(store: Store, args: argparse.Namespace) -> None:
         sys.exit("over the daily budget; raise RETAKE_DAILY_BUDGET_USD or wait until tomorrow")
     if any(it["warnings"] for it in items):
         say("warnings above need your OK")
-    start(store, "retake", items, estimate, args.yes, args.dry_run)
+    start(store, "retake", items, estimate, args.yes, args.dry_run, args.txn_id)
 
 
 def rollback_target(store: Store, printed: int) -> dict:
@@ -878,7 +918,7 @@ def cmd_rollback(store: Store, args: argparse.Namespace) -> None:
           "restore_version": v, "sha256": sha256_file(image), "folio": f"restores v{v} (before retake {target['txn']})",
           "before": summary(store.page_json(p))}
     show_plan(store.book, [it])
-    start(store, "rollback", [it], 0.0, args.yes, False)
+    start(store, "rollback", [it], 0.0, args.yes, False, args.txn_id, {"rolled_back_txn": target["txn"]})
 
 
 def cmd_resume(store: Store, txn_id: str) -> None:
@@ -887,6 +927,9 @@ def cmd_resume(store: Store, txn_id: str) -> None:
         sys.exit(f"no retake {txn_id} for {store.book.key}")
     j = json.loads(path.read_text(encoding="utf-8"))
     if j["status"] == "done":
+        if _emit:  # the worker lost track of a finished job (killed after the last stage): report it again
+            Job(store, j).emit_result()
+            return
         sys.exit(f"{txn_id} is already done")
     if j["status"] == "abandoned":
         sys.exit(f"{txn_id} was abandoned")
@@ -938,6 +981,7 @@ def main() -> None:
     ap.add_argument("--page", type=int, help="printed page (with --image or --rollback; --history filter)")
     what = ap.add_mutually_exclusive_group(required=True)
     what.add_argument("--image", help="new photo for --page (JPEG or PNG)")
+    what.add_argument("--items", metavar="FILE", help="JSON list of {image, page?, skip_folio?}: one retake of several photos (the worker's batch)")
     what.add_argument("--dir", help="folder of photos; page from the file name (imagePattern or page_NNN = image number) or the folio")
     what.add_argument("--rollback", action="store_true", help="undo the latest retake of --page")
     what.add_argument("--resume", metavar="ID", help="continue an interrupted retake")
@@ -947,7 +991,14 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="validate, build, splice into a temp copy and verify; write nothing")
     ap.add_argument("--skip-folio-check", action="store_true", help="do not OCR the photo's folio (e.g. tesseract misreads it)")
     ap.add_argument("--skip-bad", action="store_true", help="with --dir: process the valid photos when some are rejected")
+    ap.add_argument("--validate-only", action="store_true", help="check the photo(s) and print the plan; write nothing")
+    ap.add_argument("--txn-id", help="use this retake id (the worker assigns it before the run, so a crash can resume)")
+    ap.add_argument("--json", action="store_true", help=f"also print machine-readable events ({EMIT_PREFIX.strip()} {{...}} lines)")
     args = ap.parse_args()
+    global _emit
+    _emit = args.json
+    if args.txn_id and not re.fullmatch(r"rt-[A-Za-z0-9-]{4,60}", args.txn_id):
+        ap.error("--txn-id must look like rt-<letters, digits, dashes>")
 
     store = Store(BOOKS[args.book])
     if args.history:
@@ -956,9 +1007,8 @@ def main() -> None:
     require_tools()
     if not store.book.pdf.exists():
         sys.exit(f"missing {store.book.pdf} (is DATA_DIR right?)")
-    if args.image or args.rollback:
-        if args.page is None:
-            ap.error("--page is required with --image and --rollback")
+    if args.rollback and args.page is None:
+        ap.error("--page is required with --rollback")
     if args.resume:
         cmd_resume(store, args.resume)
     elif args.abandon:

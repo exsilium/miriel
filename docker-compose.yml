@@ -6,7 +6,8 @@
 # Secrets and model settings come from .env (see .env.example). ./data (PDFs and
 # page-image directories named in config/books.json) is mounted read-only into
 # the api container at /data; ./out is mounted into the indexer at /app/out.
-# Only the retake service (profile "retake") mounts ./data and ./out read-write.
+# Only the retake services (the retake CLI, profile "retake", and retake-worker) mount ./data and ./out
+# read-write.
 
 x-node-image: &node-image
   build:
@@ -77,9 +78,14 @@ services:
       ANSWER_MODEL: ${ANSWER_MODEL:-claude-sonnet-5}
       RERANK_ENABLED: ${RERANK_ENABLED:-false}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Page retakes: the routes exist only with RETAKE_ENABLED=true; RETAKE_TOKEN (optional) guards uploads/confirms.
+      RETAKE_ENABLED: ${RETAKE_ENABLED:-false}
+      RETAKE_TOKEN: ${RETAKE_TOKEN:-}
+      UPLOAD_DIR: /uploads
     volumes:
       - ./data:/data:ro
       - thumbs:/cache/thumbs
+      - uploads:/uploads # retake photos waiting for the worker (the api's only writable storage)
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -118,6 +124,34 @@ services:
         condition: service_completed_successfully
     restart: "no"
 
+  # Retake worker: validates uploaded photos and runs confirmed retake jobs (retake_jobs table) with
+  # scripts/retake.py. Idle unless the api has RETAKE_ENABLED=true and someone uploads. Jobs of one book run
+  # one at a time; a job interrupted by a restart resumes from its journal.
+  retake-worker:
+    build:
+      context: .
+      target: retake
+    image: miriel-retake
+    entrypoint: ["/usr/bin/tini", "--", "node", "packages/worker/dist/main.js"]
+    command: []
+    env_file: .env
+    environment:
+      DATABASE_URL: ${RETAKE_DATABASE_URL:-postgres://miriel:miriel@db:5432/miriel}
+      DATA_DIR: /data
+      THUMB_CACHE_DIR: /cache/thumbs
+      UPLOAD_DIR: /uploads
+      RETAKE_DAILY_BUDGET_USD: ${RETAKE_DAILY_BUDGET_USD:-10}
+    volumes:
+      - ${RETAKE_DATA:-./data}:/data
+      - ${RETAKE_OUT:-./out}:/app/out
+      - uploads:/uploads
+      - thumbs:/cache/thumbs
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    stop_grace_period: 20s
+    restart: unless-stopped
+
   web:
     build:
       context: .
@@ -133,3 +167,4 @@ services:
 volumes:
   dbdata:
   thumbs: # page thumbnails generated on demand by the api
+  uploads: # retake photos: written by the api, read (and cleaned up) by the retake worker

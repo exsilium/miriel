@@ -14,6 +14,7 @@ import type { RetrievalResult, RetrieveOptions } from "./retrieval/types.js";
 import { registerBookRoutes } from "./routes/books.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerEntityRoutes } from "./routes/entities.js";
+import { registerRetakeRoutes, type RetakeConfig } from "./routes/retakes.js";
 
 export interface ServerDeps {
   pool: Pool;
@@ -27,6 +28,8 @@ export interface ServerDeps {
   answer: (input: AnswerInput) => AsyncIterable<AnswerEvent>;
   /** name_norm values for entities mentioned in a previous user message. */
   resolvePrior: (text: string, bookIds: string[] | undefined) => Promise<string[]>;
+  /** Page retake routes (RETAKE_ENABLED=true); absent = the routes do not exist (404). */
+  retake?: RetakeConfig | undefined;
   logger?: boolean | object | undefined;
 }
 
@@ -82,5 +85,6 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   registerBookRoutes(app, deps);
   registerEntityRoutes(app, deps);
   registerChatRoutes(app, deps);
+  if (deps.retake) registerRetakeRoutes(app, deps, deps.retake);
   return app;
 }

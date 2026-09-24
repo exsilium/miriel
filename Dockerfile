@@ -3,7 +3,8 @@
 # Targets:
 #   runtime  node:22-alpine with shared + indexer + api (used by the migrate, indexer and api services)
 #   web      nginx:alpine serving the Vite build and proxying /api to the api service
-#   retake   Debian + Python (uv) + ocrmypdf/tesseract/ghostscript/qpdf + the indexer, for scripts/retake.py
+#   retake   Debian + Python (uv) + ocrmypdf/tesseract/ghostscript/qpdf + indexer + worker: scripts/retake.py
+#            (compose `retake`, one-shot CLI) and the retake worker (compose `retake-worker`)
 #
 # The PDF, page images, out/ and .env never enter an image (see .dockerignore);
 # they are mounted read-only at run time.
@@ -16,6 +17,7 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/indexer/package.json packages/indexer/
 COPY packages/api/package.json packages/api/
 COPY packages/web/package.json packages/web/
+COPY packages/worker/package.json packages/worker/
 RUN npm ci --ignore-scripts && npm rebuild esbuild
 
 # ---------------------------------------------------------------- build
@@ -50,8 +52,8 @@ COPY --from=build /app/packages/api/dist packages/api/dist
 COPY packages/api/prompts packages/api/prompts
 COPY config ./config
 COPY db/migrations ./db/migrations
-# Thumbnail cache (named volume in compose); created here so the volume inherits node ownership.
-RUN mkdir -p /cache/thumbs && chown -R node:node /cache
+# Thumbnail cache and retake uploads (named volumes in compose); created here so the volumes inherit node ownership.
+RUN mkdir -p /cache/thumbs /uploads && chown -R node:node /cache /uploads
 USER node
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "packages/api/dist/main.js"]
@@ -64,7 +66,8 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/indexer/package.json packages/indexer/
 COPY packages/api/package.json packages/api/
 COPY packages/web/package.json packages/web/
-RUN npm ci --omit=dev --ignore-scripts --workspace @miriel/shared --workspace @miriel/indexer
+COPY packages/worker/package.json packages/worker/
+RUN npm ci --omit=dev --ignore-scripts --workspace @miriel/shared --workspace @miriel/indexer --workspace @miriel/worker
 
 # ---------------------------------------------------------------- retake (scripts/retake.py: page retakes)
 # Debian, because the book PDFs were made with Debian's ocrmypdf + tesseract 5.5. Python deps come from the
@@ -87,12 +90,14 @@ COPY --from=build /app/packages/shared/package.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/indexer/package.json packages/indexer/
 COPY --from=build /app/packages/indexer/dist packages/indexer/dist
+COPY --from=build /app/packages/worker/package.json packages/worker/
+COPY --from=build /app/packages/worker/dist packages/worker/dist
 COPY config ./config
 COPY db/migrations ./db/migrations
 COPY prompts ./prompts
 COPY scripts ./scripts
-# out/ and the thumbnail cache are mounts; created here so the node user owns them when they are empty volumes.
-RUN mkdir -p /app/out /cache/thumbs && chown node:node /app/out /cache /cache/thumbs
+# out/, the thumbnail cache and uploads are mounts; created here so the node user owns them when they are empty volumes.
+RUN mkdir -p /app/out /cache/thumbs /uploads && chown node:node /app/out /cache /cache/thumbs /uploads
 USER node
 ENTRYPOINT ["/usr/bin/tini", "--", "python", "scripts/retake.py"]
 CMD ["--help"]
