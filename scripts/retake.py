@@ -27,6 +27,7 @@ and the extraction estimate against RETAKE_DAILY_BUDGET_USD (default 10). Then:
   extract    extract.py --force (same model, effort and prompt as the full run), tagged with the retake id
   ingest     indexer ingest --book <id> --pages ...
   thumbs     delete the page's cached thumbnail
+  qa         re-generate out/<book>/_qa.md and _retakes.txt (scripts/qa_report.py), so the report and the queue agree
 Version j is per page: the state a retake replaced is kept as vj, and rollback of that retake restores vj (the
 saved PDF page puts back the exact old text layer). A rollback archives what it replaces too, so it can be undone.
 
@@ -69,8 +70,8 @@ PHOTO_MATCH_MARGIN = 6        # identifying by photo alone: the best page must b
 PDF_VERSIONS_KEPT = 3
 DEFAULT_PAGE_ESTIMATE_USD = 0.20
 EXTRACT_WORKERS = 4
-RETAKE_STAGES = ["stage", "build", "splice", "commit_pdf", "commit_images", "history", "extract", "ingest", "thumbs"]
-ROLLBACK_STAGES = ["stage", "splice", "commit_pdf", "commit_images", "history", "ingest", "thumbs"]
+RETAKE_STAGES = ["stage", "build", "splice", "commit_pdf", "commit_images", "history", "extract", "ingest", "thumbs", "qa"]
+ROLLBACK_STAGES = ["stage", "splice", "commit_pdf", "commit_images", "history", "ingest", "thumbs", "qa"]
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png"}
 
 
@@ -747,6 +748,14 @@ class Job:
         r = subprocess.run(cmd, cwd=ROOT)
         if r.returncode != 0:
             raise RuntimeError(f"indexer ingest exited {r.returncode}")
+
+    def do_qa(self) -> None:
+        # a stale report is not worth failing a finished retake for: warn and carry on
+        r = subprocess.run([sys.executable, str(ROOT / "scripts" / "qa_report.py"), "--book", self.book.key],
+                           cwd=ROOT, capture_output=True, text=True)
+        wrote = [line for line in r.stdout.splitlines() if line.startswith("wrote ")]
+        say("  " + (wrote[-1] if wrote else "QA report updated") if r.returncode == 0
+            else f"  warning: qa_report.py exited {r.returncode}: {(r.stderr or r.stdout).strip()[-300:]}")
 
     def do_thumbs(self) -> None:
         root = Path(os.environ.get("THUMB_CACHE_DIR") or Path(tempfile.gettempdir()) / "miriel-thumbs")

@@ -107,6 +107,16 @@ export function RetakesView() {
         </button>
       </div>
       <TokenField required={Boolean(config?.tokenRequired)} />
+      {config?.rebuild
+        .filter((r) => r.suggest)
+        .map((r) => (
+          <div key={r.book} className="card notice">
+            <strong>{r.label}:</strong> {r.replacedSinceBuild} of {r.pageCount} pages ({Math.round((100 * r.replacedSinceBuild) / r.pageCount)} %) were
+            replaced {r.lastBuild ? "since the last full build (" + new Date(r.lastBuild).toLocaleDateString() + ")" : "since the PDF was made"}. A full rebuild
+            re-runs OCR over the whole book with one consistent text layer; run it from a terminal when convenient (it takes hours):{" "}
+            <code>npm run rebuild-pdf -- --book {r.book}</code>
+          </div>
+        ))}
       <div className="filters">
         {books.length > 1 && (
           <select value={book} onChange={(e) => setBook(e.target.value)} aria-label="Book">

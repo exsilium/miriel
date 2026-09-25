@@ -1,7 +1,8 @@
 # docker compose up                          -> app at http://localhost:3000
 # docker compose --profile index run --rm indexer   -> (re)index every configured book from ./out/<book>
 # docker compose --profile index run --rm indexer ingest --book vol2   -> one book
-# docker compose down -v                     -> clean slate (drops the database volume)
+# docker compose down                        -> stop, keep the data (npm run down)
+# docker compose down -v                     -> clean slate: drops the database, thumbs and uploads volumes (npm run reset)
 #
 # Secrets and model settings come from .env (see .env.example). ./data (PDFs and
 # page-image directories named in config/books.json) is mounted read-only into

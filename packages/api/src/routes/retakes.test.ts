@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Pool } from "@miriel/shared/db";
 import { buildServer, type ServerDeps } from "../server.js";
-import { canRollBack, queueStatus, safeName, sniffImage, type LogEntry } from "./retakes.js";
+import { canRollBack, queueStatus, replacedPages, safeName, sniffImage, type LogEntry } from "./retakes.js";
 
 const BOOK = {
   id: "vol1", title: "T", label: "Vol 1", page_count: 513, printed_to_pdf_offset: 1,
@@ -148,4 +148,20 @@ test("canRollBack follows retake.py: a retake whose version no rollback restored
   assert.equal(canRollBack([e("retake", 1), e("rollback", 2, 1)]), false);
   assert.equal(canRollBack([e("retake", 1), e("retake", 2), e("rollback", 3, 2)]), true);
   assert.equal(canRollBack([e("retake", 1), e("retake", 2), e("rollback", 3, 2), e("rollback", 4, 1)]), false);
+});
+
+test("replacedPages counts distinct pages retaken after the last rebuild, minus undone ones", () => {
+  const e = (action: "retake" | "rollback", page: number, version: number, at: string, txn: string, restored?: number): LogEntry => ({
+    at, book: "vol1", page, image_no: page + 1, action, version, archived: "", sha256: "", source: "", txn,
+    ...(restored !== undefined ? { restored } : {}),
+  });
+  const log = [
+    e("retake", 10, 1, "2026-09-01T10:00:00Z", "a"),
+    e("retake", 11, 1, "2026-09-10T10:00:00Z", "b"),
+    e("retake", 11, 2, "2026-09-11T10:00:00Z", "c"),
+    e("retake", 12, 1, "2026-09-12T10:00:00Z", "d"),
+    e("rollback", 12, 2, "2026-09-12T11:00:00Z", "e", 1),
+  ];
+  assert.equal(replacedPages(log, null), 2); // 10 and 11; 12 was rolled back
+  assert.equal(replacedPages(log, "2026-09-05T00:00:00Z"), 1); // only 11 since the rebuild
 });

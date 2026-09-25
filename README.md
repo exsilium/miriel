@@ -8,7 +8,7 @@ Chat with digitized Elden Ring strategy guides. Every claim in an answer carries
 2. `cp .env.example .env` and fill in `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` (Voyage is a separate account: https://dashboard.voyageai.com).
 3. `docker compose up --build -d` then open http://localhost:3000.
 4. `docker compose --profile index run --rm indexer` to (re)index every configured book from `out/<book>/` (`… indexer ingest --book vol2` for one).
-5. `docker compose down -v` for a clean slate.
+5. `npm run down` stops the stack and keeps the data; `npm run reset` (`docker compose down -v`) is a clean slate: it drops the database (re-index afterwards), the thumbnail cache and pending retake uploads.
 
 ## Develop
 
@@ -22,4 +22,4 @@ npm test
 ```
 
 Harnesses: `npm run retrieve -- "<query>"`, `npm run answer -- [--inline] "<question>"`.
-To add a book, follow `docs/adding-a-book.md`. See `CLAUDE.md` for the layout, `docs/build-spec.md` for the design, `docs/retrieval.md` for how a query flows.
+To add a book, follow `docs/adding-a-book.md`; to replace bad page photos, `docs/retakes.md`. See `CLAUDE.md` for the layout, `docs/build-spec.md` for the design, `docs/retrieval.md` for how a query flows.

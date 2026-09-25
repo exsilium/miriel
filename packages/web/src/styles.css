@@ -694,6 +694,15 @@ label.button.primary {
 .card.result {
   border-color: var(--ok);
 }
+.card.notice {
+  border-color: var(--accent);
+}
+.card code {
+  font-family: var(--mono);
+  background: var(--bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
 .token-field {
   display: flex;
   flex-wrap: wrap;

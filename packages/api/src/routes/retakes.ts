@@ -153,6 +153,31 @@ export function undoneRetakes(entries: LogEntry[]): Set<string> {
   return undone;
 }
 
+/** Share of a book's pages replaced since the last full rebuild above which the UI suggests rebuild_pdf.py (§7.3). */
+export const REBUILD_SHARE = 0.2;
+
+/** Distinct pages with a retake (not undone by a rollback) after `since` (ISO time; null = ever). */
+export function replacedPages(entries: LogEntry[], since: string | null): number {
+  const undone = undoneRetakes(entries);
+  const t = since ? Date.parse(since) : -Infinity;
+  const pages = new Set<number>();
+  for (const e of entries) {
+    if (e.action === "retake" && Date.parse(e.at) > t && !undone.has(e.txn + ":" + e.page)) pages.add(e.page);
+  }
+  return pages.size;
+}
+
+/** Time of the book's last full rebuild (rebuild_pdf.py logs `pdf_rebuilt` in DATA_DIR/_versions/log.jsonl). */
+async function lastRebuild(dataDir: string, book: string): Promise<string | null> {
+  try {
+    const lines = (await readFile(path.join(dataDir, "_versions", "log.jsonl"), "utf8")).split("\n").filter((l) => l.trim());
+    const builds = lines.map((l) => JSON.parse(l) as { at: string; book: string; event: string }).filter((e) => e.book === book && e.event === "pdf_rebuilt");
+    return builds.at(-1)?.at ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Same rule as retake.py's rollback: a retake that no later rollback has undone. */
 export function canRollBack(entries: LogEntry[]): boolean {
   const undone = new Set(entries.filter((e) => e.action === "rollback").map((e) => e.restored));
@@ -410,7 +435,17 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
     for (const r of await queueRows(deps.pool, undefined, deps.dataDir)) {
       counts[queueStatus(Boolean(r.quality["retake_recommended"]), r.job_kind ? { kind: r.job_kind, status: r.job_status ?? "" } : null)] += 1;
     }
-    return { enabled: true, tokenRequired: Boolean(cfg.token), maxUploadBytes: MAX_UPLOAD_BYTES, counts };
+    const { rows: books } = await deps.pool.query<{ id: string; label: string; image_dir: string; page_count: number }>(
+      "SELECT id, label, image_dir, page_count FROM books ORDER BY id",
+    );
+    const rebuild = await Promise.all(
+      books.map(async (b) => {
+        const since = await lastRebuild(deps.dataDir, b.id);
+        const replaced = replacedPages((await readImageLog(deps.dataDir, b.image_dir)).filter((e) => e.book === b.id), since);
+        return { book: b.id, label: b.label, pageCount: b.page_count, replacedSinceBuild: replaced, lastBuild: since, suggest: replaced > b.page_count * REBUILD_SHARE };
+      }),
+    );
+    return { enabled: true, tokenRequired: Boolean(cfg.token), maxUploadBytes: MAX_UPLOAD_BYTES, counts, rebuild };
   });
 
   app.get("/api/retakes/queue", async (request) => {

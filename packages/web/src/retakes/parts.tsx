@@ -92,6 +92,7 @@ export const RETAKE_STAGES: [string, string][] = [
   ["extract", "Re-extract the page"],
   ["ingest", "Re-index"],
   ["thumbs", "Refresh thumbnails"],
+  ["qa", "Update the QA report"],
 ];
 const ROLLBACK_STAGES: [string, string][] = [
   ["stage", "Stage the previous photo"],
@@ -101,6 +102,7 @@ const ROLLBACK_STAGES: [string, string][] = [
   ["history", "Restore the previous extraction"],
   ["ingest", "Re-index"],
   ["thumbs", "Refresh thumbnails"],
+  ["qa", "Update the QA report"],
 ];
 
 /**

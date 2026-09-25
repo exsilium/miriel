@@ -61,6 +61,8 @@ export interface RetakeConfig {
   tokenRequired: boolean;
   maxUploadBytes: number;
   counts: Record<QueueStatus, number>;
+  /** Per book: pages replaced since the last full PDF rebuild; suggest = more than 20 % of the book. */
+  rebuild: { book: string; label: string; pageCount: number; replacedSinceBuild: number; lastBuild: string | null; suggest: boolean }[];
 }
 
 export interface QueueItem {
