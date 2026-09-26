@@ -1,6 +1,6 @@
 # Adding a book
 
-How to bring a new volume (Vol 3, or any other scanned guide) into Miriel. No code changes: one JSON
+How to bring a new volume (Vol 4, or any other scanned guide) into Miriel. No code changes: one JSON
 entry, the files in place, and the commands below. Run everything from the repo root.
 
 The Python commands below use `uv run python scripts/…` on the host; the same scripts run in Docker with
@@ -12,6 +12,12 @@ command line (below).
 Rehearsed on 2026-09-24 with a temporary `vol3` entry pointing at the Vol 2 files: offset check, 3 pages
 extracted, ingest, API and citation check, reset. **About 2 minutes wall time, $0.55.** A full book is
 dominated by extraction: about 1 h 45 min and $80–105 for 500+ pages at `--workers 4`.
+
+**Vol 3 went in this way on 2026-09-26** (418 PDF pages, printed 1–417), all in Docker: offset and image
+check clean on the first run; fixture of 7 pages $1.19; full extraction 410 pages, 0 failed, **$60.30
+($0.147/page), 1 h 14 min** at `--workers 4`, so **$61.49** in all; QA 417/417 valid, 24 retake flags; ingest
+3726 chunks, 8795 entities, 615k embedding tokens. The Vol 1/2 rows were untouched (`ingest --all`
+reported every page unchanged).
 
 ## 1. Put the files in `data/`
 
@@ -104,6 +110,13 @@ Long runs must survive the session: start them as a detached process and watch t
 uv run python scripts/extract.py --book vol3 --workers 4 1-<last printed page> > out/vol3/_run.log 2> out/vol3/_run.err
 ```
 
+In Docker (what Vol 3 used; the container survives closing the terminal):
+
+```
+docker compose --profile retake run -d --name extract-vol3 --entrypoint python retake scripts/extract.py --book vol3 --workers 4 1-417
+docker logs -f extract-vol3      # progress lines [n/N] with cost per page; docker rm extract-vol3 afterwards
+```
+
 - Pages with valid output are skipped, so the same command resumes after a crash or reboot.
 - A page that fails every retry leaves `out/vol3/_failed/pNNNN.txt`. If the API's output content filter
   blocked it, transcribe it in parts:
@@ -122,6 +135,13 @@ Writes `out/vol3/_qa.md` (coverage, consistency problems, distributions, retakes
 ```
 uv run python scripts/extract.py --book vol3 --pages-from out/vol3/_retakes.txt --force
 ```
+
+(Once the book is in the app, re-shoots go through the retake queue instead: `docs/retakes.md`.)
+
+Read the retake list before planning a re-shoot. In Vol 3, 15 of the 24 flags were maps printed across a
+two-page spread: labels cut at the gutter (right edge of even pages, left edge of odd pages) continue on the
+facing page, so a new photo cannot fix them. Real crops are easier to find by shape: a photo whose aspect
+ratio is far from the book's median (Vol 3 p. 114, 1405 px wide against ~1800) is missing a strip.
 
 ## 7. Ingest
 

@@ -4,7 +4,9 @@ How to replace bad page photos: export the list, re-shoot in vFlat, upload, revi
 system then replaces the photo, rebuilds that page of the PDF with its OCR layer, re-extracts and re-indexes
 the page, and every browser sees the new page without a hard refresh. Every step can be undone.
 
-Where things stand: the extraction flagged **145 pages of Vol 1** and **13 of Vol 2** (`retake_recommended`).
+Where things stand: the extraction flagged **145 pages of Vol 1**, **13 of Vol 2** and **24 of Vol 3** (`retake_recommended`). Many
+map flags are spread artefacts: labels cut at the gutter continue on the facing page, and a new photo will not change them
+(15 of the 24 in Vol 3; see `docs/adding-a-book.md` §6).
 A retake costs about **$0.12–0.18 per page** (median $0.14, re-extraction with the same model as the full run);
 checking a photo and rolling back cost nothing.
 
@@ -25,18 +27,18 @@ checking a photo and rolling back cost nothing.
 
 What the extraction complained about (pages per issue; a page can have several):
 
-| issue | Vol 1 | Vol 2 |
-| --- | ---: | ---: |
-| low_resolution | 98 | 9 |
-| blur | 97 | 9 |
-| crop_cut_off | 69 | 3 |
-| page_curl | 58 | 4 |
-| color_cast | 35 | 1 |
-| shadow | 26 | 4 |
-| skew | 21 | 3 |
-| two_pages_in_frame | 15 | – |
-| glare | 14 | 1 |
-| fingers_or_obstruction | – | 1 |
+| issue | Vol 1 | Vol 2 | Vol 3 |
+| --- | ---: | ---: | ---: |
+| low_resolution | 98 | 9 | 2 |
+| blur | 97 | 9 | 1 |
+| crop_cut_off | 69 | 3 | 18 |
+| page_curl | 58 | 4 | 16 |
+| color_cast | 35 | 1 | 2 |
+| shadow | 26 | 4 | 6 |
+| skew | 21 | 3 | 6 |
+| two_pages_in_frame | 15 | – | 5 |
+| glare | 14 | 1 | 4 |
+| fingers_or_obstruction | – | 1 | – |
 
 Group by issue in the queue (**Group by issue**) to shoot all pages with the same problem in one go.
 
@@ -63,7 +65,7 @@ Vol 1, 4.2 MP in Vol 2), and the flagged pages are barely smaller than the good 
 - **fingers_or_obstruction**: keep fingers off the text; vFlat's finger removal helps at the edges only.
 
 **File names.** The fastest and safest: name each photo `page_NNN.jpg` where NNN is the *image number* =
-printed page + 1 for Vol 1 and Vol 2 (so printed page 289 is `page_290.jpg`). The book's own image names
+printed page + 1 for all three books (so printed page 289 is `page_290.jpg`). The book's own image names
 (`Elden Ring Vol 1 - The Lands Between - 290.jpg`) work too. Photos with other names are matched by their
 printed folio confirmed by photo similarity, or by photo similarity alone (maps have no folio); anything
 unclear is left for you to assign.

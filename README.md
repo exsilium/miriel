@@ -15,7 +15,7 @@ Chat with digitized Elden Ring strategy guides. Every claim in an answer carries
 | --- | --- | --- | --- |
 | `config/books.json` | the book list: file names, page offset, page count | yes | – |
 | `data/` | per book: the OCR'd PDF and a folder with one photo per PDF page; `data/_versions/` and `<imageDir>/_versions/` hold retake history | no | the digitisation itself (photos, OCR); keep a backup |
-| `out/<book>/` | extraction output, one `pNNNN.json` per page, plus QA report and run log | no | **expensive**: about $80–105 and ~2 h per book (model calls) |
+| `out/<book>/` | extraction output, one `pNNNN.json` per page, plus QA report and run log | no | **expensive**: about $60–105 and 1¼–2 h per book (model calls; Vol 1 $78, Vol 2 $104, Vol 3 $61) |
 | database (volume `dbdata`) | chunks, embeddings, entities: built from `out/` | no | minutes: `npm run index`, or restore a dump (below) |
 | `.env` | API keys and settings | no | copy it, or fill in from `.env.example` |
 | volumes `thumbs`, `uploads` | thumbnail cache; retake photos waiting to be processed | no | regenerated on demand / empty when no retake is pending |
@@ -49,7 +49,7 @@ The names come from `pdf`, `imageDir` and `imagePattern` in `config/books.json`;
    ```
    The run is resumable: start the same command again and it skips pages that already have valid output.
 6. `npm run up` (`docker compose up --build -d`): builds the images, creates the database, applies migrations, starts the app at http://localhost:3000 (on the LAN: `http://<this machine>:3000`).
-7. `npm run index` (`docker compose --profile index run --rm indexer`): chunks and embeds every book from `out/` into the database. About 3 minutes for the two books.
+7. `npm run index` (`docker compose --profile index run --rm indexer`): chunks and embeds every book from `out/` into the database. A few minutes for the three books.
 
 ## Moving an existing stack to another machine (no re-extraction, no re-embedding)
 
@@ -62,7 +62,7 @@ docker compose exec db pg_dump -U miriel -Fc -f /tmp/miriel.dump miriel
 docker compose cp db:/tmp/miriel.dump ./miriel.dump
 ```
 
-Then copy to the new machine: `data/` (≈ 1.7 GB for the two books, plus up to 3 old PDF versions per book once retakes were done), `out/` (≈ 20 MB), `.env` (holds your keys: copy it securely) and `miriel.dump` (≈ 50 MB; it contains book text, keep it out of git: `*.dump` is ignored). The dump is written inside the container and copied out with `docker compose cp` on purpose: redirecting `pg_dump` output with `>` in Windows PowerShell corrupts the binary file.
+Then copy to the new machine: `data/` (≈ 2.4 GB for the three books, plus up to 3 old PDF versions per book once retakes were done), `out/` (≈ 25 MB), `.env` (holds your keys: copy it securely) and `miriel.dump` (≈ 50 MB; it contains book text, keep it out of git: `*.dump` is ignored). The dump is written inside the container and copied out with `docker compose cp` on purpose: redirecting `pg_dump` output with `>` in Windows PowerShell corrupts the binary file.
 
 **On the new machine:**
 
