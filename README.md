@@ -20,17 +20,19 @@ Chat with digitized Elden Ring strategy guides. Every claim in an answer carries
 | `.env` | API keys and settings | no | copy it, or fill in from `.env.example` |
 | volumes `thumbs`, `uploads` | thumbnail cache; retake photos waiting to be processed | no | regenerated on demand / empty when no retake is pending |
 
-`data/` for the two configured books:
+`data/` for the three configured books:
 
 ```
 data/
   Elden Ring Vol 1 - The Lands Between.pdf
   Elden Ring Vol 1 - The Lands Between/          Elden Ring Vol 1 - The Lands Between - 1.jpg … - 513.jpg
   Elden Ring Vol 2 - Shards of the Shattering.pdf
-  Elden Ring Vol 2 - Shards Of The Shattering/   Elden Ring Vol 2 - Shards Of The Shattering - 1.jpg … - 530.jpg
+  Elden Ring Vol 2 - Shards of the Shattering/   Elden Ring Vol 2 - Shards of the Shattering - 1.jpg … - 530.jpg
+  Elden Ring Vol 3 - Shadow of the Erdtree.pdf
+  Elden Ring Vol 3 - Shadow of the Erdtree/      Elden Ring Vol 3 - Shadow of the Erdtree - 1.jpg … - 418.jpg
 ```
 
-The names come from `pdf`, `imageDir` and `imagePattern` in `config/books.json` (`{n}` = PDF page number = printed page + `printedToPdfOffset`). Photo n must be the photo embedded in PDF page n. How the PDFs were made (vFlat → img2pdf → ocrmypdf → outline → metadata) is described in `docs/build-spec-retakes.md` §1.
+The names come from `pdf`, `imageDir` and `imagePattern` in `config/books.json`; the image folder and files use the PDF's spelling and case (Vol 2 and Vol 3 were exported as "… Of The …" and renamed, see `_rename-log.json` in the folder) (`{n}` = PDF page number = printed page + `printedToPdfOffset`). Photo n must be the photo embedded in PDF page n. How the PDFs were made (vFlat → img2pdf → ocrmypdf → outline → metadata) is described in `docs/build-spec-retakes.md` §1.
 
 ## Fresh install (a new machine, starting from the source files)
 

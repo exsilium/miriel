@@ -6,6 +6,8 @@ entry, the files in place, and the commands below. Run everything from the repo 
 The Python commands below use `uv run python scripts/…` on the host; the same scripts run in Docker with
 `npm run py -- scripts/…` (no Python on the host needed; `config/books.json` is mounted, so a new entry is
 seen without an image rebuild). For the long extraction run in Docker, see "Fresh install" in the README.
+The fixture (step 4) lives in `test-pages/`, which the tools image does not mount: in Docker, add it on the
+command line (below).
 
 Rehearsed on 2026-09-24 with a temporary `vol3` entry pointing at the Vol 2 files: offset check, 3 pages
 extracted, ingest, API and citation check, reset. **About 2 minutes wall time, $0.55.** A full book is
@@ -20,6 +22,10 @@ data/<Image Folder>/           # one photo per PDF page, numbered 1..N in PDF or
 
 The image folder must hold exactly one photo per PDF page, in the same order. Stray shots (duplicates,
 page-turn blur) shift every later file; step 3 detects them.
+
+Name the folder and its files with the PDF's spelling and case. vFlat exports title case ("Shadow Of The
+Erdtree") while the PDF says "Shadow of the Erdtree"; Vol 2 and Vol 3 were renamed to match (each folder has
+a `_rename-log.json`). On Windows a case-only rename needs a detour through a temporary name.
 
 ## 2. Add the config entry
 
@@ -69,10 +75,22 @@ Pick one page of each type the book has (dense text, map, item table, boss stat 
 scan). Record them in the prompt's "Test run" table, then:
 
 ```
-uv run python scripts/build_fixture.py --book vol3 --pages 200,11,60,280,343,507
+uv run python scripts/build_fixture.py --book vol3 --pages 38,36,233,193,350,6,111
 uv run python scripts/extract.py --book vol3 --fixture --dry-run      # sizes, OCR length, no API call
 uv run python scripts/extract.py --book vol3 --fixture --workers 3
 ```
+
+In Docker (`test-pages/` bind-mounted; create the folder first):
+
+```
+docker compose --profile retake run --rm -v ./test-pages:/app/test-pages --entrypoint python retake scripts/build_fixture.py --book vol3 --pages 38,36,233,193,350,6,111
+docker compose --profile retake run --rm -v ./test-pages:/app/test-pages --entrypoint python retake scripts/extract.py --book vol3 --fixture --dry-run
+docker compose --profile retake run --rm -v ./test-pages:/app/test-pages --entrypoint python retake scripts/extract.py --book vol3 --fixture --workers 3
+```
+
+The Vol 3 fixture (7 pages) cost $1.19 ($0.170/page) in 2m19s. Map pages whose map runs across a two-page
+spread come back flagged `crop_cut_off` / retake at the gutter edge although nothing is missing from the photo;
+judge those against the facing page (Vol 3 p. 36–37).
 
 Review the outputs in `out/vol3/` against the photos with the prompt's four checks (names as printed,
 map labels vs legend, entity names verbatim in markdown, retake flag vs your eye). If a page type comes

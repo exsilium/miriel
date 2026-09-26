@@ -7,7 +7,7 @@ Read `docs/build-spec.md` (v1) first; everything there still applies. v1 deliver
 | | Vol 1 — The Lands Between | Vol 2 — Shards of the Shattering | Vol 3 |
 |---|---|---|---|
 | PDF | `Elden Ring Vol 1 - The Lands Between.pdf`, 513 pages, 254 MB | `Elden Ring Vol 2 - Shards of the Shattering.pdf`, 530 pages, 311 MB | not yet scanned |
-| Page images | `Elden Ring Vol 1 - The Lands Between/`, 513 files `… - N.jpg` | `Elden Ring Vol 2 - Shards Of The Shattering/` (note capital **O**f), 532 files `… - N.jpg` | |
+| Page images | `Elden Ring Vol 1 - The Lands Between/`, 513 files `… - N.jpg` | `Elden Ring Vol 2 - Shards Of The Shattering/` (note capital **O**f), 532 files `… - N.jpg` (renamed to `Shards of the Shattering` on 2026-09-26 to match the PDF; `config/books.json` is current) | |
 | OCR text layer | 491 of 513 pages have > 50 chars | 523 of 530 pages have > 50 chars | |
 | Mapping | verified on all pages: printed p = PDF page p+1 = image p+1, offset **1** | ⚠ sampled at two points only (image 12 = printed 11, image 201 = printed 200): offset **1**. The two surplus images are back-matter; check the last 30 pages before extraction. | must be verified with the offset script (Phase A) |
 | `{{BOOK}}` / `sourceBook` | `Vol 1 - The Lands Between` | `Vol 2 - Shards of the Shattering` (match the PDF's spelling, not the folder's) | |

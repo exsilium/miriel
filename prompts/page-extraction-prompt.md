@@ -7,9 +7,10 @@ All source files live under `data/` (gitignored; `DATA_DIR`). The authoritative 
 | Book (config id) | OCR PDF | Page images | `{{BOOK}}` |
 |------|---------|-------------|-----------|
 | Vol 1 — The Lands Between (`vol1`) | `data/Elden Ring Vol 1 - The Lands Between.pdf` (513 pages) | `data/Elden Ring Vol 1 - The Lands Between/` (513 images, `… - N.jpg`) | `Vol 1 - The Lands Between` |
-| Vol 2 — Shards of the Shattering (`vol2`) | `data/Elden Ring Vol 2 - Shards of the Shattering.pdf` (530 pages) | `data/Elden Ring Vol 2 - Shards Of The Shattering/` (530 images; two stray shots, a duplicate of printed 206 and a mid-page-turn photo, were moved to `_extra/` and the rest renumbered, see `_renumber-log.json`) | `Vol 2 - Shards of the Shattering` |
+| Vol 2 — Shards of the Shattering (`vol2`) | `data/Elden Ring Vol 2 - Shards of the Shattering.pdf` (530 pages) | `data/Elden Ring Vol 2 - Shards of the Shattering/` (530 images; two stray shots, a duplicate of printed 206 and a mid-page-turn photo, were moved to `_extra/` and the rest renumbered, see `_renumber-log.json`; folder and files renamed from "Shards Of The" to the PDF's case on 2026-09-26, see `_rename-log.json`) | `Vol 2 - Shards of the Shattering` |
+| Vol 3 — Shadow of the Erdtree (`vol3`) | `data/Elden Ring Vol 3 - Shadow of the Erdtree.pdf` (418 pages) | `data/Elden Ring Vol 3 - Shadow of the Erdtree/` (418 images, all matching their PDF page; renamed from "Shadow Of The" to the PDF's case, see `_rename-log.json`) | `Vol 3 - Shadow of the Erdtree` |
 
-Use the PDF for OCR text (extract the text layer per page) and the image directory for the page image. Match them by page index; confirm the mapping with `scripts/check_offset.py --book <id> --images all` (printed page + `printedToPdfOffset` = PDF page = image number; it also matches every image file against the photo embedded in its PDF page, which is how the Vol 2 stray shots were found; offset 1 for both volumes, verified 2026-09-23), since PDF page index and printed page number are offset by the front matter.
+Use the PDF for OCR text (extract the text layer per page) and the image directory for the page image. Match them by page index; confirm the mapping with `scripts/check_offset.py --book <id> --images all` (printed page + `printedToPdfOffset` = PDF page = image number; it also matches every image file against the photo embedded in its PDF page, which is how the Vol 2 stray shots were found; offset 1 for all three volumes, verified 2026-09-23 and 2026-09-26), since PDF page index and printed page number are offset by the front matter.
 
 ## Test run
 
@@ -38,7 +39,19 @@ Before running the whole book, run a small representative subset:
    | Lore page | 507 | Lichdragon Fortissax |
    | Dense image-and-caption page | 247 | Special Enemies / Artillery; small caption text |
 
-2. **Build a test PDF** containing only those pages, extracted from the source PDF in the same order, saved with the matching page images and a manifest in `./test-pages/<book>/` (`uv run python scripts/build_fixture.py --book vol1 --pages 159,73,33,316,501,289`; Vol 2: `--book vol2 --pages 200,11,60,280,343,507,247`). This gives a small, reproducible fixture you can re-run every time you change the prompt.
+   Vol 3 (Shadow of the Erdtree DLC: world and dungeon guide with maps, bestiary, equipment, quests):
+
+   | Page type | Printed page | Why |
+   |-----------|--------------|-----|
+   | Dense walkthrough (numbered sites, sidebars) | 38 | Scadu Altus sites 1–3; notable-treasure sidebars, lettered screenshots |
+   | Region map with numbered legend | 36 | Scadu Altus; 24-entry objectives legend, location totals, quest callouts |
+   | Weapon stat table | 233 | Greatswords; affinity table, cross-volume reference "(Vol. II, P.395)" |
+   | Boss with stat block | 193 | Lamenter; resistances, HP/runes, drops, attack boxes |
+   | Lore / NPC quest page | 350 | Redmane Freyja; lore text, quest events, item requirements |
+   | Wide table with rotated headers | 6 | New Game+ modifiers; 20 columns |
+   | Weak photo | 111 | Specimen Storehouse floor maps; soft, blurred lower-left |
+
+2. **Build a test PDF** containing only those pages, extracted from the source PDF in the same order, saved with the matching page images and a manifest in `./test-pages/<book>/` (`uv run python scripts/build_fixture.py --book vol1 --pages 159,73,33,316,501,289`; Vol 2: `--book vol2 --pages 200,11,60,280,343,507,247`; Vol 3: `--book vol3 --pages 38,36,233,193,350,6,111`). This gives a small, reproducible fixture you can re-run every time you change the prompt.
 
 3. **Run the prompt** once per page: this prompt, the page image at full resolution, the OCR text for that page, with `{{BOOK}}` and `{{PAGE}}` filled in.
 
