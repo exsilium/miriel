@@ -20,3 +20,5 @@ node_modules/
 dist/
 *.tsbuildinfo
 /retakes/
+# database dumps contain book text (README: moving to another machine)
+*.dump

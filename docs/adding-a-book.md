@@ -3,6 +3,10 @@
 How to bring a new volume (Vol 3, or any other scanned guide) into Miriel. No code changes: one JSON
 entry, the files in place, and the commands below. Run everything from the repo root.
 
+The Python commands below use `uv run python scripts/…` on the host; the same scripts run in Docker with
+`npm run py -- scripts/…` (no Python on the host needed; `config/books.json` is mounted, so a new entry is
+seen without an image rebuild). For the long extraction run in Docker, see "Fresh install" in the README.
+
 Rehearsed on 2026-09-24 with a temporary `vol3` entry pointing at the Vol 2 files: offset check, 3 pages
 extracted, ingest, API and citation check, reset. **About 2 minutes wall time, $0.55.** A full book is
 dominated by extraction: about 1 h 45 min and $80–105 for 500+ pages at `--workers 4`.

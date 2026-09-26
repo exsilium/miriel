@@ -60,6 +60,7 @@ services:
     volumes:
       - ./out:/app/out:ro
       - ./data:/data:ro
+      - ./config:/app/config:ro # the live book list: a new book needs no image rebuild
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -121,6 +122,7 @@ services:
       - ${RETAKE_DATA:-./data}:/data
       - ${RETAKE_OUT:-./out}:/app/out
       - ${RETAKE_INBOX:-./retakes}:/retakes:ro
+      - ./config:/app/config # read-write: check_offset.py --record writes offsetVerified
       - thumbs:/cache/thumbs
     depends_on:
       migrate:
@@ -147,6 +149,7 @@ services:
     volumes:
       - ${RETAKE_DATA:-./data}:/data
       - ${RETAKE_OUT:-./out}:/app/out
+      - ./config:/app/config:ro
       - uploads:/uploads
       - thumbs:/cache/thumbs
     depends_on:

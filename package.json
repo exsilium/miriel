@@ -32,6 +32,7 @@
     "up": "docker compose up --build -d",
     "index": "docker compose --profile index run --rm indexer",
     "retake": "docker compose --profile retake run --rm --build retake",
+    "py": "docker compose --profile retake run --rm --build --entrypoint python retake",
     "rebuild-pdf": "docker compose --profile retake run --rm --build --entrypoint python retake scripts/rebuild_pdf.py",
     "down": "docker compose down",
     "reset": "docker compose down -v",
