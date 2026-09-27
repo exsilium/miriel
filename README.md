@@ -70,33 +70,32 @@ Art books (`"kind": "artbook"` in the config) have no text layer and no photos: 
 7. `npm run index` (`docker compose --profile index run --rm indexer`): chunks and embeds every guide and art book from `out/` into the database. A few minutes for all six.
 8. Create your admin account: `npm run user -- add <name> --admin` (`docker compose --profile index run --rm indexer user add <name> --admin`). It prints a one-time password; log in with it (top right, "Log in") and choose your own. More accounts are made in the app under your name > Users. Reading and chat stay open without a login unless `AUTH_REQUIRED=true` is set in `.env` (do that when the site is reachable from outside your network; with https also `COOKIE_SECURE=true`).
 
-## Moving an existing stack to another machine (no re-extraction, no re-embedding)
+## Backup, restore and moving to another machine (no re-extraction, no re-embedding)
 
-Everything expensive is in files: `data/`, `out/` and a database dump. Copy those; nothing has to be computed again.
-
-**On the old machine** (from the repo root, stack running):
+Everything expensive is in files: `data/`, `out/` and the database. One command puts them into a single zip, another puts them back. Both need Docker and Node 22.2+ on the host (nothing to `npm install`) and work the same on Windows, WSL2, macOS and Linux.
 
 ```
-docker compose exec db pg_dump -U miriel -Fc -f /tmp/miriel.dump miriel
-docker compose cp db:/tmp/miriel.dump ./miriel.dump
+npm run export                 # -> backups/miriel_YYYYMMDD.zip (a second export the same day: miriel_YYYYMMDD-2.zip)
+npm run import                 # restores the newest backups/miriel_*.zip (or the repo root's)
 ```
 
-Then copy to the new machine: `data/` (≈ 3.2 GB: 2.4 GB for the three guides, 0.8 GB for the art books, of which the 0.4 GB of spread folders can be left out and rebuilt with `scripts/art_export.py`; plus up to 3 old PDF versions per guide once retakes were done), `out/` (≈ 30 MB), `.env` (holds your keys: copy it securely) and `miriel.dump` (≈ 50 MB; it contains book text, keep it out of git: `*.dump` is ignored). The dump is written inside the container and copied out with `docker compose cp` on purpose: redirecting `pg_dump` output with `>` in Windows PowerShell corrupts the binary file.
+**Export** starts the database container if needed (the rest of the stack may keep running), dumps the database (`pg_dump -Fc`, run inside the container), then zips the dump, `data/` and `out/` (all of them: PDFs, photos, retake history in `_versions/`, extraction output and runs), and the retake photos still waiting in the `uploads` volume. About 3.5 GB and half a minute for the current six books; photos and PDFs are stored as they are, text is compressed. `--out <dir>` writes somewhere else (an external drive); `--with-env` adds `.env`. It refuses while a retake is running (its lock file in `data/_versions/`); wait for it to finish. The zip holds book text, user password hashes and, with `--with-env`, your API keys: keep it private (`backups/` and `*.zip` are ignored by git and Docker).
 
-**On the new machine:**
+**Import** takes the newest backup, or a path (`npm run import -- D:/miriel_20260927.zip`; `--dir <dir>` searches another folder). Before it changes anything it extracts the whole zip into a staging folder and checks every file (CRC-32 and size). A backup whose database has migrations this checkout does not know is refused (`git pull` first). Then it:
 
-```
-git clone <repo> miriel && cd miriel
-# put data/, out/, .env and miriel.dump into the repo root
-docker compose up -d db                        # empty database only; wait until `docker compose ps` shows it healthy
-docker compose cp ./miriel.dump db:/tmp/miriel.dump
-docker compose exec db pg_restore -U miriel -d miriel --no-owner /tmp/miriel.dump
-npm run up                                     # migrations find everything applied; the app starts with all books
-```
+1. stops the stack (`docker compose down`; the volumes stay),
+2. moves what it replaces to `backups/pre-import-<time>/` (a dump of the current database, the old `data/` and `out/`, the old pending uploads). Delete that folder when the restore looks right,
+3. restores the database into a fresh, empty `miriel` database, so it does not matter whether `npm run up` already ran on the new machine,
+4. swaps in `data/` and `out/` and restores the pending uploads,
+5. starts the stack again if it was running; otherwise run `npm run up`.
 
-Restore into the **empty** database: before anything else starts on the new machine. `npm run up`, `index`, `py`, `retake` and `user` all run the migrations first, which create empty tables. If one of them already ran there, `npm run reset` first. User accounts, retake jobs and their history come along (sessions too, so people stay logged in); the thumbnail cache rebuilds itself.
+When there is something to replace it asks first (`--yes` skips the question, which scripts need). A missing `.env` is restored from the backup when the backup has one, or else created from `.env.example` (fill in the two API keys). An existing `.env` is never overwritten; a differing copy from the backup goes to `.env.from-backup`. User accounts, runs, checklist progress, retake jobs and their history come along (sessions too, so people stay logged in); the thumbnail cache rebuilds itself.
 
-**Without a dump**: copy `data/`, `out/`, `.env`, then `npm run up` and `npm run index`. Same result, except that user accounts (and later checklist progress) live only in the database and have to be created again; the embeddings are recomputed (a few minutes of Voyage API calls, no model calls).
+**Moving to a new machine:** `npm run export -- --with-env` (or copy `.env` securely yourself) on the old one; on the new one `git clone <repo> miriel && cd miriel`, put the zip into `backups/`, then `npm run import` and `npm run up`. Free space needed: about the size of the zip plus the unpacked files (≈ 7 GB now), since the zip is unpacked next to `data/`.
+
+**By hand**, without Node (what the scripts do): `docker compose exec db pg_dump -U miriel -Fc -f /tmp/miriel.dump miriel`, then `docker compose cp db:/tmp/miriel.dump ./miriel.dump`, and copy `data/`, `out/`, `.env` and `miriel.dump` over. The dump is written inside the container and copied out with `docker compose cp` on purpose: redirecting `pg_dump` output with `>` in Windows PowerShell corrupts the binary file. On the new machine, restore into an **empty** database before anything else runs (`npm run up`, `index`, `py`, `retake` and `user` all run the migrations first, which create empty tables; if one of them already ran, `npm run reset` first): `docker compose up -d db`, wait until it is healthy, `docker compose cp ./miriel.dump db:/tmp/miriel.dump`, `docker compose exec db pg_restore -U miriel -d miriel --no-owner /tmp/miriel.dump`, then `npm run up`.
+
+**Without a dump**: copy `data/`, `out/`, `.env`, then `npm run up` and `npm run index`. Same result, except that user accounts and checklist progress live only in the database and have to be created again; the embeddings are recomputed (a few minutes of Voyage API calls, no model calls).
 
 **Linux hosts:** the containers that write `data/` and `out/` (retakes, extraction) run as uid 1000. If your user has another uid: `sudo chown -R 1000:1000 data out` (Docker Desktop on Windows/macOS needs nothing).
 
@@ -110,6 +109,8 @@ After the move, a quick check: `npm run py -- scripts/check_offset.py --book vol
 | `npm run down` | `docker compose down` | stop; all data stays |
 | `npm run reset` | `docker compose down -v` | clean slate: drops the database (books, user accounts), thumbnail cache and pending uploads (then `npm run index` and `npm run user -- add <name> --admin`) |
 | `npm run index` | `docker compose --profile index run --rm indexer` | (re)index every book from `out/`; unchanged pages are skipped |
+| `npm run export` | – (Node script, see above) | back up database, `data/`, `out/` and pending uploads to `backups/miriel_YYYYMMDD.zip` |
+| `npm run import` | – | restore the newest backup (asks before replacing anything) |
 | `npm run logs` | `docker compose logs -f api web` | follow the app logs |
 | `npm run user -- add <name> [--admin]` | `docker compose --profile index run --rm indexer user add <name> [--admin]` | create an account (prints a one-time password); also `user list`, `user reset <name>`, `user role <name> admin\|user` for when nobody can log in |
 | `npm run py -- scripts/<x>.py …` | `docker compose --profile retake run --rm --build --entrypoint python retake scripts/<x>.py …` | any Python script (extract, check_offset, qa_report, …) in the tools image |

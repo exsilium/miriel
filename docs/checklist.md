@@ -112,5 +112,5 @@ Most "check" items point to the right walkthrough, map or boss page.
 - Admins create accounts in the app (your name > Users) or with `npm run user -- add <name> [--admin]`. The admin
   list shows items done per user.
 - Deleting a user deletes their runs and progress. `npm run reset` drops the database, and with it every
-  account and tick. `pg_dump` (README, "Moving an existing stack") keeps them, and the backup includes the
+  account and tick. `npm run export` (README, "Backup, restore and moving to another machine") keeps them, and the backup includes the
   `users`, `sessions`, `runs`, `progress`, `checklists` and `checklist_items` tables.

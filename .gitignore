@@ -22,3 +22,8 @@ dist/
 /retakes/
 # database dumps contain book text (README: moving to another machine)
 *.dump
+# npm run export / import: backups (book text, password hashes, maybe .env) and their staging folder
+/backups/
+/.miriel-tmp/
+miriel_*.zip
+.env.from-backup

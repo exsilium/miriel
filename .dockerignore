@@ -5,6 +5,12 @@ Elden Ring Vol */
 test-pages/
 out/
 .env
+.env.*
+# npm run export / import: backups hold everything above
+backups/
+.miriel-tmp/
+*.zip
+*.dump
 
 # Build products and installs are recreated inside the build
 node_modules
