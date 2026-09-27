@@ -335,3 +335,30 @@ Observations:
 - "What are the requirements for Moonveil?" finds Moonveil only in the
   Intelligence stat list (p. 48) and Gael Tunnel (p. 116): Vol 1 has no weapon
   requirement tables; that question belongs to Vol 2.
+
+## Art next to answers (`art-match.ts`; docs/build-spec-artbooks.md §7)
+
+The chat route sends an `art` SSE event after `anchors` with artworks from the art books; the answer model never sees
+it. Harness: `npm run art -- "<question>"` (no model call; prints the strip and the raw text-search similarities).
+
+- **Subjects** are the question's anchor entities (prior-turn entities excluded). Only the question's own subjects are
+  used, not every entity on the consulted pages: a guide page lists dozens of entities, which buried the subject.
+- **Name match**: an artwork name equals the subject, or the guide spelling it was verified to; a plural "s" on the
+  last word is ignored ("Crucible Knights" in the guides, "Crucible Knight" in the art book). For persons (npc, boss,
+  merchant) titled forms also match, ranked after exact matches: "Malenia, Blade of Miquella", "Godrick the
+  Grafted", "Radagon of the Golden Order", "Starscourge Radahn" — but not "Radahn Soldier".
+- **Tiers**: 0 caption name; 1 visual name at high confidence; 2 visual at medium; low-confidence visual names never
+  match. At most 2 artworks per subject (one per spread), 6 in total.
+- **Text search** only for appearance questions (`look like`, `show me`, `concept art`, …): nearest artwork
+  descriptions (voyage-4, same embeddings as ingest) at cosine similarity >= 0.58 next to name matches, >= 0.55 when
+  there are none. Measured 2026-09-26: good hits 0.55–0.67 (Crucible Knight 0.63, Academy interiors 0.59–0.67),
+  wrong ones 0.50–0.53 (Melina 0.515 for "what does Malenia look like", Drake Knight for Crucible Knights).
+
+| Question | Strip |
+|---|---|
+| What does Malenia look like? | Malenia, Blade of Miquella; Malenia, Goddess of Rot (both captioned) |
+| How do I beat Godrick the Grafted? | Godrick (captioned), Godrick (visual, high) |
+| What does Radahn look like? | Starscourge Radahn; Shardbearer Radahn trophy |
+| What does the Godskin Apostle drop in Dominula? | Godskin Apostle; Dominula, Windmill Village; Dominula Celebrant |
+| Where do I find Giant Rat Ashes? | the Giant Rat Ashes icon |
+| What is the best build for a sorcerer? | (none: no subject, not an appearance question) |

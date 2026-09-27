@@ -293,7 +293,7 @@ export async function upsertBook(pool: pg.Pool, id: string, b: BookConfig): Prom
      ON CONFLICT (id) DO UPDATE SET
        title = EXCLUDED.title, label = EXCLUDED.label, source_book = EXCLUDED.source_book, pdf_path = EXCLUDED.pdf_path,
        image_dir = EXCLUDED.image_dir, image_pattern = EXCLUDED.image_pattern,
-       printed_to_pdf_offset = EXCLUDED.printed_to_pdf_offset, page_count = EXCLUDED.page_count`,
+       printed_to_pdf_offset = EXCLUDED.printed_to_pdf_offset, page_count = EXCLUDED.page_count, kind = 'guide', spread = NULL`,
     [id, b.title, b.label, b.sourceBook, b.pdf, b.imageDir, b.imagePattern, b.printedToPdfOffset, b.pageCount],
   );
 }

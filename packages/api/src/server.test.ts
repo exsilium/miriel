@@ -298,3 +298,43 @@ test("encodeSse and consultedPages", () => {
   });
   assert.deepEqual(pages, [{ book: "vol1", page: 73 }, { book: "vol1", page: 159 }]);
 });
+
+test("artwork crops snap the requested width to the cached sizes", async () => {
+  const { snapWidth } = await import("./routes/artworks.js");
+  assert.equal(snapWidth(undefined), 480);
+  assert.equal(snapWidth(100), 240);
+  assert.equal(snapWidth(481), 960);
+  assert.equal(snapWidth(3000), 1600);
+});
+
+test("POST /api/chat sends an art event after anchors when artworks match, and answers even if the lookup fails", async () => {
+  const item = { id: 7, book: "art2", pdfPage: 50, folios: [98, 99], bbox: [0, 0, 1, 1], kind: "enemy", name: "Grafted Scion", source: "caption", confidence: "high", captionJa: "接ぎ木の貴公子", description: "d", imageVersion: "abc", subject: "grafted scion", tier: 0 } as const;
+  const run = async (findArt: ServerDeps["findArt"]) => {
+    const { app } = await makeApp({ findArt });
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    try {
+      const addr = app.server.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      const res = await fetch("http://127.0.0.1:" + port + "/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages: [{ role: "user", content: "What does the Grafted Scion look like?" }] }),
+      });
+      return (await res.text()).split("\n\n").filter((b) => b.startsWith("event:")).map((b) => {
+        const [e, d] = b.split("\n");
+        return { event: e!.slice(7), data: JSON.parse(d!.slice(6)) as Record<string, unknown> };
+      });
+    } finally {
+      await app.close();
+    }
+  };
+  const ok = await run(async () => [item]);
+  assert.deepEqual(ok.map((e) => e.event), ["anchors", "art", "text", "citation", "text", "done"]);
+  assert.deepEqual((ok[1]!.data as { items: unknown[] }).items, [item]);
+  const none = await run(async () => []);
+  assert.deepEqual(none.map((e) => e.event), ["anchors", "text", "citation", "text", "done"]);
+  const failing = await run(async () => {
+    throw new Error("db hiccup");
+  });
+  assert.deepEqual(failing.map((e) => e.event), ["anchors", "text", "citation", "text", "done"]);
+});

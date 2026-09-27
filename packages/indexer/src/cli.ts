@@ -3,7 +3,7 @@
  * indexer migrate
  * indexer ingest --book <id> [--out ./out/<id>] [--pages 33,73] [--dry-run] [--force] [--provider fake]
  * indexer ingest --all [--out ./out]           # every book in config/books.json, from <out>/<id>/
- * indexer reset  --book <id>
+ * indexer reset  --book <id>                   # guides and art books
  * indexer dump   --book <id> --page 159        # chunks as stored in the database
  * indexer dump   --file out/<id>/p0159.json    # chunks the chunker would produce, no database
  */
@@ -12,7 +12,9 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import {
   createEmbeddingProvider,
+  artBooks,
   findRepoRoot,
+  guideBooks,
   loadBooksConfig,
   loadDotEnv,
   EMBEDDING_DIM,
@@ -22,6 +24,7 @@ import {
 import { chunkPage, type Chunk } from "./chunker.js";
 import { createPool } from "@miriel/shared/db";
 import { formatSummary, ingest, loadPageFile, resetBook, upsertBook } from "./ingest.js";
+import { formatArtSummary, ingestArtBook, upsertArtBook } from "./art-ingest.js";
 import { migrate } from "./migrate.js";
 
 const USAGE = `usage:
@@ -72,7 +75,10 @@ async function main(argv: string[]): Promise<number> {
 
   loadDotEnv(values.env);
   const root = findRepoRoot();
-  const books = loadBooksConfig(path.join(root, "config", "books.json"));
+  const config = loadBooksConfig(path.join(root, "config", "books.json"));
+  const books = guideBooks(config);
+  /** Art books (docs/build-spec-artbooks.md): labels from <out>/<id>/sNNNN.json, indexed by art-ingest.ts. */
+  const arts = artBooks(config);
   /** Page photos, for pages.image_sha256 (DATA_DIR, else <repo>/data; skipped with a note when absent). */
   const dataDir = path.resolve(process.env["DATA_DIR"] ?? path.join(root, "data"));
 
@@ -80,7 +86,10 @@ async function main(argv: string[]): Promise<number> {
     const id = values.book;
     if (!id) throw new Error("--book is required");
     const book = books[id];
-    if (!book) throw new Error("unknown book \"" + id + "\"; configured: " + Object.keys(books).join(", "));
+    if (!book) {
+      if (arts[id]) throw new Error(id + " is an art book; this command works on guides only");
+      throw new Error("unknown book \"" + id + "\"; configured: " + Object.keys(config).join(", "));
+    }
     return [id, book];
   };
 
@@ -106,6 +115,18 @@ async function main(argv: string[]): Promise<number> {
         process.stdout.write(formatSummary(summary) + "\n");
         invalid += summary.pagesSkipped;
       }
+      for (const [bookId, book] of Object.entries(arts)) {
+        const outDir = path.join(outRoot, bookId);
+        log("== " + bookId + " (" + book.label + ", art book) from " + outDir);
+        if (!existsSync(outDir)) {
+          log("warning: no labels for " + bookId + " yet; registering the book without artworks");
+          if (!dryRun) await upsertArtBook(pool, bookId, book);
+          continue;
+        }
+        const summary = await ingestArtBook({ bookId, book, outDir, dryRun, force: values.force, provider, pool, dataDir, log });
+        process.stdout.write(formatArtSummary(summary) + "\n");
+        invalid += summary.skipped.length;
+      }
     } finally {
       await pool.end();
     }
@@ -128,6 +149,21 @@ async function main(argv: string[]): Promise<number> {
       if (values.all) {
         if (values.book || values.pages) throw new Error("--all cannot be combined with --book or --pages");
         return ingestAll(values.out ? path.resolve(values.out) : path.join(root, "out"));
+      }
+      const art = values.book ? arts[values.book] : undefined;
+      if (art) {
+        if (values.pages) throw new Error("--pages is not supported for art books (spreads are hash-checked; use --force to redo)");
+        const bookId = values.book!;
+        const provider = values["dry-run"] ? createEmbeddingProvider({ provider: "fake" }) : createEmbeddingProvider({ provider: values.provider });
+        const pool = createPool(values["database-url"]);
+        try {
+          const outDir = path.resolve(values.out ?? path.join(root, "out", bookId));
+          const summary = await ingestArtBook({ bookId, book: art, outDir, dryRun: values["dry-run"], force: values.force, provider, pool, dataDir, log });
+          process.stdout.write(formatArtSummary(summary) + "\n");
+          return summary.skipped.length > 0 ? 1 : 0;
+        } finally {
+          await pool.end();
+        }
       }
       const [bookId, book] = requireBook();
       const outDir = path.resolve(values.out ?? path.join(root, "out", bookId));
@@ -156,7 +192,7 @@ async function main(argv: string[]): Promise<number> {
     }
 
     case "reset": {
-      const [bookId] = requireBook();
+      const bookId = values.book && arts[values.book] ? values.book : requireBook()[0];
       const pool = createPool(values["database-url"]);
       try {
         const c = await resetBook(pool, bookId);

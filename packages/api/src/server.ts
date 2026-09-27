@@ -9,8 +9,10 @@ import type { Pool } from "@miriel/shared/db";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AnswerEvent, AnswerInput } from "./answer/index.js";
+import type { ArtItem } from "./art-match.js";
 import { HttpProblem, sendProblem } from "./problem.js";
 import type { RetrievalResult, RetrieveOptions } from "./retrieval/types.js";
+import { registerArtworkRoutes } from "./routes/artworks.js";
 import { registerBookRoutes } from "./routes/books.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerEntityRoutes } from "./routes/entities.js";
@@ -28,6 +30,10 @@ export interface ServerDeps {
   answer: (input: AnswerInput) => AsyncIterable<AnswerEvent>;
   /** name_norm values for entities mentioned in a previous user message. */
   resolvePrior: (text: string, bookIds: string[] | undefined) => Promise<string[]>;
+  /** Artworks to show next to an answer (docs/build-spec-artbooks.md §7); absent = no `art` event. */
+  findArt?: ((query: string, retrieval: RetrievalResult) => Promise<ArtItem[]>) | undefined;
+  /** Query embedding for artwork text search (GET /api/artworks?q=); absent = that search answers 503. */
+  embedQuery?: ((text: string) => Promise<number[]>) | undefined;
   /** Page retake routes (RETAKE_ENABLED=true); absent = the routes do not exist (404). */
   retake?: RetakeConfig | undefined;
   logger?: boolean | object | undefined;
@@ -83,6 +89,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   registerBookRoutes(app, deps);
+  registerArtworkRoutes(app, deps);
   registerEntityRoutes(app, deps);
   registerChatRoutes(app, deps);
   if (deps.retake) registerRetakeRoutes(app, deps, deps.retake);

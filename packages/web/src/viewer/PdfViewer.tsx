@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Document } from "react-pdf";
-import { pdfUrl } from "../api.js";
+import { isArtBook, pageLabel, pdfUrl, spreadFolios, spreadForFolio } from "../api.js";
 import { useRetakes } from "../retakes/context.js";
 import { navigate, retakePagePath } from "../route.js";
 import { useAppState } from "../state.js";
-import { PageSlot, type Highlight } from "./PageSlot.js";
+import { PageSlot, type BoxHighlight, type Highlight } from "./PageSlot.js";
 
 const RENDER_WINDOW = 2; // pages rendered on each side of the current one
 const ZOOM_STEPS = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 2.5, 3];
@@ -23,6 +23,10 @@ export function PdfViewer() {
   const toPdf = useCallback((printed: number) => printed + offset, [offset]);
   const toPrinted = useCallback((pdfNo: number) => pdfNo - offset, [offset]);
   const maxPrinted = book.pageCount - offset;
+  /** Art book: pages are spreads (PDF pages); the page box shows and takes printed folios. */
+  const art = isArtBook(book);
+  const folioOf = useCallback((pdfNo: number) => spreadFolios(book, pdfNo)[0] ?? null, [book]);
+  const lastFolio = art ? (spreadFolios(book, book.pageCount)[1] ?? book.pageCount) : maxPrinted;
 
   const [numPages, setNumPages] = useState(0);
   const [aspect, setAspect] = useState(1.4); // height / width, from the first rendered page
@@ -33,6 +37,7 @@ export function PdfViewer() {
   const currentPage = useRef(current);
   currentPage.current = current;
   const [highlight, setHighlight] = useState<Highlight | null>(null);
+  const [boxHighlight, setBoxHighlight] = useState<BoxHighlight | null>(null);
   const [pageInput, setPageInput] = useState(String(viewerPage));
 
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -94,6 +99,7 @@ export function PdfViewer() {
     const pdfNo = Math.min(Math.max(toPdf(target.page), 1), numPages);
     setCurrent(pdfNo);
     setHighlight(target.quote ? { quote: target.quote, nonce: target.nonce } : null);
+    setBoxHighlight(target.box ? { box: target.box, nonce: target.nonce } : null);
     const slot = scrollerRef.current?.querySelector<HTMLElement>('[data-page="' + pdfNo + '"]');
     slot?.scrollIntoView({ block: "start" });
   }, [target, book.id, numPages, toPdf]);
@@ -122,9 +128,9 @@ export function PdfViewer() {
 
   useEffect(() => {
     const printed = toPrinted(current);
-    setPageInput(String(printed));
+    setPageInput(art ? String(folioOf(current) ?? "") : String(printed));
     if (printed !== viewerPage) setViewerPage(printed);
-  }, [current, toPrinted, viewerPage, setViewerPage]);
+  }, [current, toPrinted, viewerPage, setViewerPage, art, folioOf]);
 
   const goToPrinted = (printed: number): void => {
     const clamped = Math.min(Math.max(printed, 1 - offset), maxPrinted);
@@ -154,12 +160,16 @@ export function PdfViewer() {
             onSubmit={(e) => {
               e.preventDefault();
               const n = Number(pageInput);
-              if (Number.isInteger(n)) goToPrinted(n);
+              if (!Number.isInteger(n)) return;
+              if (art) {
+                const spread = spreadForFolio(book, n);
+                if (spread) goToPrinted(spread);
+              } else goToPrinted(n);
             }}
           >
-            <input className="page-input" value={pageInput} onChange={(e) => setPageInput(e.target.value)} aria-label="Printed page number" inputMode="numeric" />
+            <input className="page-input" value={pageInput} onChange={(e) => setPageInput(e.target.value)} aria-label="Printed page number" inputMode="numeric" placeholder={art ? "page" : undefined} />
           </form>
-          <span className="muted">/ {maxPrinted}</span>
+          <span className="muted">/ {lastFolio}</span>
           <button onClick={() => goToPrinted(toPrinted(current) + 1)} disabled={current >= numPages} aria-label="Next page">
             ›
           </button>
@@ -179,17 +189,19 @@ export function PdfViewer() {
           </button>
         </div>
         <div className="group">
-          <button onClick={() => setImageMode((v) => !v)} aria-pressed={imageMode} title="Show the original page photo instead of the PDF render">
-            Page image
-          </button>
-          {retakes && (
+          {!art && (
+            <button onClick={() => setImageMode((v) => !v)} aria-pressed={imageMode} title="Show the original page photo instead of the PDF render">
+              Page image
+            </button>
+          )}
+          {retakes && !art && (
             <button onClick={() => navigate(retakePagePath(book.id, toPrinted(current)))} title="Upload a new photo of this page">
               Retake this page
             </button>
           )}
         </div>
         <span className="muted" style={{ marginLeft: "auto" }}>
-          {book.label} · PDF page {current}
+          {book.label} · {art ? pageLabel(book, current) : "PDF page " + current}
         </span>
       </div>
 
@@ -209,13 +221,19 @@ export function PdfViewer() {
               bookId={book.id}
               pdfNo={pdfNo}
               printed={toPrinted(pdfNo)}
+              label={art ? pageLabel(book, pdfNo) : undefined}
               rendered={Math.abs(pdfNo - current) <= RENDER_WINDOW}
               isCurrent={pdfNo === current}
               width={pageWidth}
               height={pageHeight}
-              imageMode={imageMode}
+              imageMode={imageMode && !art}
               highlight={highlight && pdfNo === current ? highlight : null}
-              onAspect={(a) => setAspect((prev) => (Math.abs(prev - a) > 0.001 ? a : prev))}
+              boxHighlight={boxHighlight && pdfNo === current ? boxHighlight : null}
+              onAspect={(a) => {
+                // every slot shares one height: on an art book the portrait cover must not resize the spreads
+                if (art && pdfNo < (book.spread?.pdfPage ?? 1)) return;
+                setAspect((prev) => (Math.abs(prev - a) > 0.001 ? a : prev));
+              }}
             />
           ))}
         </Document>

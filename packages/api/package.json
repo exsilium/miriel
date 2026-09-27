@@ -13,7 +13,8 @@
     "retrieve": "node dist/retrieve-cli.js",
     "start": "node dist/main.js",
     "dev": "tsx watch src/main.ts",
-    "answer": "node dist/answer-cli.js"
+    "answer": "node dist/answer-cli.js",
+    "art": "node dist/art-cli.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",

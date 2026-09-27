@@ -1,11 +1,11 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { pageThumbUrl, type Citation } from "../api.js";
+import { artCropUrl, pageLabel, pageThumbUrl, type ArtItem, type Book, type Citation } from "../api.js";
 import { pillToken, renderMarkdown } from "../markdown.js";
 import { useAppState } from "../state.js";
 import { useImageVersions } from "../versions.js";
 import type { AssistantMsg, UserMsg } from "./ChatPane.js";
 
-type Jump = (book: string, page: number, quote?: string | null) => void;
+type Jump = (book: string, page: number, quote?: string | null, box?: [number, number, number, number]) => void;
 
 export function UserMessage({ message }: { message: UserMsg }) {
   return <div className="msg user">{message.content}</div>;
@@ -83,6 +83,8 @@ export function AssistantMessage({ message, onJump, onRetry }: { message: Assist
         </div>
       )}
 
+      {message.art.length > 0 && <ArtStrip items={message.art} books={books} onJump={onJump} />}
+
       {anchors && anchors.consulted.length > 0 && message.status !== "streaming" && (
         <div className="strip">
           <span style={{ color: "var(--fg-muted)" }}>Pages consulted</span>
@@ -104,6 +106,40 @@ export function AssistantMessage({ message, onJump, onRetry }: { message: Assist
           {message.stats.fellBack ? " · fell back to inline citations" : ""}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Artworks from the art books for the question's subjects: crop, name, book and pages. A click opens the spread in
+ * the viewer with the artwork outlined. Names identified from the picture (not from a printed caption) are marked.
+ */
+export function ArtStrip({ items, books, onJump }: { items: ArtItem[]; books: Book[]; onJump: Jump }): ReactNode {
+  return (
+    <div className="strip art-strip">
+      <span style={{ color: "var(--fg-muted)" }}>Art</span>
+      <div className="thumbs">
+        {items.map((it) => {
+          const book = books.find((b) => b.id === it.book);
+          const where = (book?.label ?? it.book) + " · " + (book ? pageLabel(book, it.pdfPage) : "PDF page " + it.pdfPage);
+          const name = it.name ?? it.description.split(/[.;]/)[0]!;
+          const guessed = it.source === "visual";
+          const title =
+            name + " — " + where + "\n" + it.description +
+            (it.captionJa ? "\nCaption: " + it.captionJa : "") +
+            (guessed ? "\nIdentified from the picture (no caption names it)." : it.source === "search" ? "\nFound by its description." : "");
+          return (
+            <button key={it.id} className="thumb art" title={title} onClick={() => onJump(it.book, it.pdfPage, null, it.bbox)}>
+              <img src={artCropUrl(it.id, it.imageVersion, 240)} alt={name} loading="lazy" decoding="async" />
+              <span className="art-name">
+                {name}
+                {guessed && <em className="art-guess" aria-label="identified from the picture"> ?</em>}
+              </span>
+              <span>{where}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

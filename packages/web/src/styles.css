@@ -352,6 +352,30 @@ button.primary {
   color: var(--fg-muted);
 }
 
+/* Art strip (art books): crops fitted inside 240 px, shown 120 px high like the page thumbnails */
+.thumb.art {
+  grid-template-rows: 120px auto auto;
+  max-width: 180px;
+  background: var(--bg-elev-2);
+}
+.thumb.art img {
+  height: 120px;
+  max-width: 180px;
+  margin: 0 auto;
+  background: #000;
+}
+.thumb.art .art-name {
+  color: var(--fg);
+  padding: 2px 6px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.thumb.art .art-guess {
+  color: var(--accent);
+  font-style: normal;
+}
+
 .msg-footer {
   color: var(--fg-muted);
   font-size: 0.75em;
@@ -547,6 +571,23 @@ button.primary {
   color: transparent;
   border-radius: 2px;
   box-shadow: 0 0 0 2px var(--mark);
+}
+.page-slot .art-box {
+  position: absolute;
+  pointer-events: none;
+  border: 3px solid var(--accent);
+  border-radius: 4px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+  animation: art-box 3.2s ease-out forwards;
+}
+@keyframes art-box {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 .page-slot .no-match {
   position: absolute;

@@ -9,7 +9,9 @@ import { z } from "zod";
 /** Dimension of the stored vectors. Must match the embedding model's output. */
 export const EMBEDDING_DIM = 1024;
 
+/** A strategy guide: OCR PDF + one photo per printed page, extracted to out/<id>/pNNNN.json. */
 export const BookConfigSchema = z.strictObject({
+  kind: z.literal("guide").optional(),
   title: z.string().min(1),
   /** Short label for citations and UI pills, e.g. "Vol 1". */
   label: z.string().min(1),
@@ -27,10 +29,63 @@ export const BookConfigSchema = z.strictObject({
   offsetVerified: z.string().optional(),
 });
 
-export const BooksConfigSchema = z.record(z.string().regex(/^[a-z0-9_-]+$/), BookConfigSchema);
+/**
+ * An art book (docs/build-spec-artbooks.md): one JPEG per PDF page, most pages two-page spreads. Its "page"
+ * number everywhere is the 1-based PDF page; `spread` maps it to printed folios.
+ */
+export const ArtBookConfigSchema = z.strictObject({
+  kind: z.literal("artbook"),
+  title: z.string().min(1),
+  label: z.string().min(1),
+  pdf: z.string().min(1),
+  /** Spread JPEGs exported byte for byte from the PDF by scripts/art_export.py. */
+  imageDir: z.string().min(1),
+  /** {n} = 1-based PDF page number. */
+  imagePattern: z.string().includes("{n}"),
+  pageCount: z.int().positive(),
+  /** PDF page `pdfPage` shows printed folios `leftFolio` and `leftFolio + 1`; each later page adds 2. */
+  spread: z.strictObject({ pdfPage: z.int().positive(), leftFolio: z.int() }),
+  /** Contents file under DATA_DIR: [{from, to, chapter, section, region}] by printed folio. */
+  contents: z.string().min(1),
+  /** Operator note written by scripts/art_check.py --record. */
+  folioVerified: z.string().optional(),
+});
+
+export const BooksConfigSchema = z.record(z.string().regex(/^[a-z0-9_-]+$/), z.union([ArtBookConfigSchema, BookConfigSchema]));
 
 export type BookConfig = z.infer<typeof BookConfigSchema>;
+export type ArtBookConfig = z.infer<typeof ArtBookConfigSchema>;
+export type AnyBookConfig = BookConfig | ArtBookConfig;
 export type BooksConfig = z.infer<typeof BooksConfigSchema>;
+
+export function isArtBook(b: AnyBookConfig): b is ArtBookConfig {
+  return b.kind === "artbook";
+}
+
+/** The guides of a config, in config order (every tool that reads page extractions works on these). */
+export function guideBooks(config: BooksConfig): Record<string, BookConfig> {
+  return Object.fromEntries(Object.entries(config).filter((e): e is [string, BookConfig] => !isArtBook(e[1])));
+}
+
+export function artBooks(config: BooksConfig): Record<string, ArtBookConfig> {
+  return Object.fromEntries(Object.entries(config).filter((e): e is [string, ArtBookConfig] => isArtBook(e[1])));
+}
+
+/** Printed folios shown on a PDF page of an art book: [left, right], or [] before the first spread (cover). */
+export function spreadFolios(book: ArtBookConfig, pdfPage: number): number[] {
+  const { pdfPage: anchor, leftFolio } = book.spread;
+  if (pdfPage < anchor || pdfPage > book.pageCount) return [];
+  const left = leftFolio + 2 * (pdfPage - anchor);
+  return [left, left + 1];
+}
+
+/** PDF page of an art book that shows a printed folio, or null when the folio is outside the book. */
+export function spreadForFolio(book: ArtBookConfig, folio: number): number | null {
+  const { pdfPage: anchor, leftFolio } = book.spread;
+  if (folio < leftFolio) return null;
+  const pdfPage = anchor + Math.floor((folio - leftFolio) / 2);
+  return pdfPage <= book.pageCount ? pdfPage : null;
+}
 
 export function loadBooksConfig(file: string): BooksConfig {
   const raw = JSON.parse(readFileSync(file, "utf8")) as unknown;

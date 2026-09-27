@@ -31,5 +31,35 @@
     "printedToPdfOffset": 1,
     "pageCount": 418,
     "offsetVerified": "2026-09-26, pages 47,186,232,278,325,371; images all"
+  },
+  "art1": {
+    "kind": "artbook",
+    "title": "Elden Ring Official Art Book Vol 1",
+    "label": "Art 1",
+    "pdf": "Elden Ring Art Book Volume 1 Wide.pdf",
+    "imageDir": "Elden Ring Art Book Volume 1 Wide",
+    "imagePattern": "Elden Ring Art Book Volume 1 Wide - {n}.jpg",
+    "pageCount": 220,
+    "spread": {
+      "pdfPage": 2,
+      "leftFolio": 2
+    },
+    "contents": "Elden Ring Art Book Volume 1 Wide.contents.json",
+    "folioVerified": "2026-09-26, footer folios checked on pdf 12-212 every 10th (22-423); pdf 213-220 back matter without folios"
+  },
+  "art2": {
+    "kind": "artbook",
+    "title": "Elden Ring Official Art Book Vol 2",
+    "label": "Art 2",
+    "pdf": "Elden Ring Art Book Volume 2 Wide.pdf",
+    "imageDir": "Elden Ring Art Book Volume 2 Wide",
+    "imagePattern": "Elden Ring Art Book Volume 2 Wide - {n}.jpg",
+    "pageCount": 195,
+    "spread": {
+      "pdfPage": 2,
+      "leftFolio": 2
+    },
+    "contents": "Elden Ring Art Book Volume 2 Wide.contents.json",
+    "folioVerified": "2026-09-26, footer folios checked on pdf 12-191 (22-381); pdf 192-195 back matter without folios"
   }
 }

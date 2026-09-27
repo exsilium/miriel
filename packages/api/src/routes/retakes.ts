@@ -34,6 +34,13 @@ import { openSse } from "../sse.js";
 import { shortVersion } from "../versions.js";
 import { parse, requireBook } from "./books.js";
 
+/** Retakes replace page photos of the scanned guides; art books have none (docs/build-spec-artbooks.md §2). */
+async function requireGuide(deps: ServerDeps, id: string) {
+  const book = await requireBook(deps, id);
+  if (book.kind === "artbook") throw new HttpProblem(400, "Not a guide", id + " is an art book; retakes apply to the scanned guides only.");
+  return book;
+}
+
 export interface RetakeConfig {
   uploadDir: string;
   token?: string | undefined;
@@ -290,7 +297,7 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
   app.post("/api/retakes", async (request, reply) => {
     requireToken(request);
     const q = parse(UploadQuery, request.query);
-    const book = await requireBook(deps, q.book);
+    const book = await requireGuide(deps, q.book);
     if (q.page !== undefined) {
       const first = 1 - book.printed_to_pdf_offset;
       const last = book.page_count - book.printed_to_pdf_offset;
@@ -436,7 +443,7 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
       counts[queueStatus(Boolean(r.quality["retake_recommended"]), r.job_kind ? { kind: r.job_kind, status: r.job_status ?? "" } : null)] += 1;
     }
     const { rows: books } = await deps.pool.query<{ id: string; label: string; image_dir: string; page_count: number }>(
-      "SELECT id, label, image_dir, page_count FROM books ORDER BY id",
+      "SELECT id, label, image_dir, page_count FROM books WHERE kind = 'guide' ORDER BY id",
     );
     const rebuild = await Promise.all(
       books.map(async (b) => {
@@ -470,7 +477,7 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
 
   app.get("/api/retakes/history", async (request) => {
     const q = parse(HistoryQuery, request.query);
-    const book = await requireBook(deps, q.book);
+    const book = await requireGuide(deps, q.book);
     const entries = (await readImageLog(deps.dataDir, book.image_dir)).filter((e) => e.book === q.book && e.page === q.page);
     const { rows } = await deps.pool.query<JobRow>(
       "SELECT " + COLUMNS + " FROM retake_jobs WHERE book_id = $1 AND page = $2 ORDER BY created_at DESC LIMIT 100",
@@ -514,7 +521,7 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
     const { page } = parse(PageBody, request.body);
     const job = await getJob(deps.pool, id);
     if (!job) throw new HttpProblem(404, "Unknown retake job", "No retake job " + id + ".");
-    const book = await requireBook(deps, job.book_id);
+    const book = await requireGuide(deps, job.book_id);
     const first = 1 - book.printed_to_pdf_offset;
     const last = book.page_count - book.printed_to_pdf_offset;
     if (page < first || page > last) {
@@ -533,7 +540,7 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
   app.post("/api/retakes/accept", async (request) => {
     requireToken(request);
     const body = parse(AcceptBody, request.body);
-    await requireBook(deps, body.book);
+    await requireGuide(deps, body.book);
     await deps.pool.query(
       "UPDATE retake_jobs SET status = 'discarded', message = 'acceptance withdrawn', updated_at = now() " +
         "WHERE kind = 'accept' AND book_id = $1 AND page = $2 AND status = 'done'",
@@ -551,7 +558,7 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
   app.post("/api/retakes/rollback", async (request, reply) => {
     requireToken(request);
     const body = parse(RollbackBody, request.body);
-    await requireBook(deps, body.book);
+    await requireGuide(deps, body.book);
     const { rows } = await deps.pool.query<JobRow>(
       `INSERT INTO retake_jobs (book_id, page, kind, status, message) VALUES ($1, $2, 'rollback', 'confirmed', 'rollback queued for the worker')
        RETURNING ` + COLUMNS,

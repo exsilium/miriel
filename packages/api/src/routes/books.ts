@@ -35,6 +35,8 @@ export function registerBookRoutes(app: FastifyInstance, deps: ServerDeps): void
         label: b.label,
         pageCount: b.page_count,
         printedToPdfOffset: b.printed_to_pdf_offset,
+        kind: b.kind,
+        spread: b.spread,
         pdfRevision: await pdfRevision(b.pdf_path),
       })),
     );

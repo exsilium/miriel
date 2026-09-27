@@ -12,6 +12,34 @@ export interface Book {
   printedToPdfOffset: number;
   /** sha256 prefix of the current PDF; changes when a retake replaces a page. */
   pdfRevision: string | null;
+  /** "artbook": one spread per PDF page, page numbers are PDF pages and `spread` maps them to printed folios. */
+  kind?: "guide" | "artbook";
+  spread?: { pdfPage: number; leftFolio: number } | null;
+}
+
+export const isArtBook = (b: Book): boolean => b.kind === "artbook";
+
+/** Printed folios shown on a PDF page of an art book ([left, right]); [] for the cover or a guide. */
+export function spreadFolios(b: Book, pdfPage: number): number[] {
+  const s = b.spread;
+  if (!s || pdfPage < s.pdfPage || pdfPage > b.pageCount) return [];
+  const left = s.leftFolio + 2 * (pdfPage - s.pdfPage);
+  return [left, left + 1];
+}
+
+/** PDF page of an art book that shows a printed folio (either side of the spread), or null. */
+export function spreadForFolio(b: Book, folio: number): number | null {
+  const s = b.spread;
+  if (!s || folio < s.leftFolio) return null;
+  const pdfPage = s.pdfPage + Math.floor((folio - s.leftFolio) / 2);
+  return pdfPage <= b.pageCount ? pdfPage : null;
+}
+
+/** How a viewer page is named: "p. 159" for a guide, "pp. 118–119" (or "cover") for an art book spread. */
+export function pageLabel(b: Book, page: number): string {
+  if (!isArtBook(b)) return "p. " + page;
+  const f = spreadFolios(b, page);
+  return f.length ? "pp. " + f[0] + "–" + f[1] : "cover";
 }
 
 export interface PageRef {
@@ -52,6 +80,26 @@ export interface AnchorsEvent {
   imageVersions?: Record<string, string>;
 }
 
+/** An artwork from an art book shown next to an answer (docs/build-spec-artbooks.md §7). */
+export interface ArtItem {
+  id: number;
+  book: string;
+  pdfPage: number;
+  folios: number[];
+  /** [x0, y0, x1, y1] as fractions of the spread. */
+  bbox: [number, number, number, number];
+  kind: string;
+  name: string | null;
+  /** caption: named from the printed caption; visual: identified from the picture; search: found by description. */
+  source: "caption" | "visual" | "search";
+  confidence: "high" | "medium" | "low";
+  captionJa: string | null;
+  description: string;
+  imageVersion: string | null;
+  subject: string | null;
+  tier: number;
+}
+
 export interface AnswerStats {
   model: string;
   mode: string;
@@ -65,6 +113,7 @@ export interface AnswerStats {
 
 export type ChatEvent =
   | AnchorsEvent
+  | { type: "art"; items: ArtItem[] }
   | { type: "text"; text: string }
   | { type: "citation"; citation: Citation }
   | { type: "done"; stats: AnswerStats }
@@ -86,6 +135,10 @@ export interface ChatRequest {
 }
 
 const withVersion = (url: string, v: string | null | undefined): string => (v ? url + "?v=" + encodeURIComponent(v) : url);
+
+/** An artwork cut from its spread, fitted inside w x w px; ?v= (the spread version) makes it immutable. */
+export const artCropUrl = (id: number, version: string | null, w = 240): string =>
+  "/api/artworks/" + id + "/crop?w=" + w + (version ? "&v=" + encodeURIComponent(version) : "");
 
 /** The PDF at a revision: a new revision is a new URL, so pdf.js never mixes byte ranges of two files. */
 export const pdfUrl = (book: string, revision: string | null): string => withVersion("/api/books/" + encodeURIComponent(book) + "/pdf", revision);

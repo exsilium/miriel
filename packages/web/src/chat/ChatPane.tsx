@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { streamChat, type AnchorsEvent, type AnswerStats, type ChatEvent, type Citation } from "../api.js";
+import { isArtBook, streamChat, type AnchorsEvent, type ArtItem, type AnswerStats, type ChatEvent, type Citation } from "../api.js";
 import { useAppState } from "../state.js";
 import { rememberVersions } from "../versions.js";
 import { Composer } from "./Composer.js";
@@ -18,6 +18,8 @@ export interface AssistantMsg {
   role: "assistant";
   segments: Segment[];
   anchors: AnchorsEvent | null;
+  /** Artworks from the art books for the question's subjects. */
+  art: ArtItem[];
   status: "streaming" | "done" | "error";
   error: string | null;
   stats: AnswerStats | null;
@@ -38,7 +40,10 @@ const EXAMPLES = [
 ];
 
 export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
-  const { book, books, scope, setScope, goTo } = useAppState();
+  const { book, books: allBooks, scope: chosenScope, setScope, goTo } = useAppState();
+  // Answers come from the guides; with an art book open the scope is every guide and the toggle is hidden.
+  const books = allBooks.filter((b) => !isArtBook(b));
+  const scope = isArtBook(book) ? "all" : chosenScope;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -61,7 +66,7 @@ export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
     async (question: string, history: ChatMessage[]) => {
       const userId = nextId.current++;
       const assistantId = nextId.current++;
-      const assistant: AssistantMsg = { id: assistantId, role: "assistant", segments: [], anchors: null, status: "streaming", error: null, stats: null, question };
+      const assistant: AssistantMsg = { id: assistantId, role: "assistant", segments: [], anchors: null, art: [], status: "streaming", error: null, stats: null, question };
       setMessages([...history, { id: userId, role: "user", content: question }, assistant]);
       setBusy(true);
 
@@ -120,8 +125,8 @@ export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
   );
 
   const jump = useCallback(
-    (bookId: string, page: number, quote?: string | null) => {
-      goTo(bookId, page, quote ?? null);
+    (bookId: string, page: number, quote?: string | null, box?: [number, number, number, number]) => {
+      goTo(bookId, page, quote ?? null, box ?? null);
       onShowBook();
     },
     [goTo, onShowBook],
@@ -133,7 +138,7 @@ export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
         {messages.length === 0 && (
           <div className="empty-hint">
             <p>
-              Ask about the indexed pages of {scope === "book" || books.length === 1 ? book.title : "all " + books.length + " books"}. Every claim in an
+              Ask about the indexed pages of {scope === "book" || books.length === 1 ? (books.length === 1 ? books[0]!.title : book.title) : "all " + books.length + " books"}. Every claim in an
               answer carries a page citation; click one to open that page.
             </p>
             <ul>
@@ -152,7 +157,7 @@ export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
       <Composer
         disabled={busy}
         bookId={scope === "book" ? book.id : undefined}
-        scope={books.length > 1 ? { value: scope, bookLabel: book.label, onChange: setScope } : null}
+        scope={books.length > 1 && !isArtBook(book) ? { value: scope, bookLabel: book.label, onChange: setScope } : null}
         onSend={onSend}
         onStop={busy ? onStop : null}
       />
@@ -165,6 +170,9 @@ function applyEvent(ev: ChatEvent, id: number, update: (id: number, fn: (m: Assi
     case "anchors":
       rememberVersions(ev.imageVersions);
       update(id, (m) => ({ ...m, anchors: ev }));
+      break;
+    case "art":
+      update(id, (m) => ({ ...m, art: ev.items }));
       break;
     case "text":
       update(id, (m) => {

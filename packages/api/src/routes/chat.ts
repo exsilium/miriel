@@ -1,5 +1,8 @@
 /**
- * POST /api/chat -> SSE stream: anchors, text*, citation*, done | error
+ * POST /api/chat -> SSE stream: anchors, art?, text*, citation*, done | error
+ *
+ * `art` (docs/build-spec-artbooks.md §7) lists artworks from the art books for the question's subjects; the answer
+ * model never sees it. It is sent only when there is something to show, and a failure there never stops the answer.
  */
 import { describeError } from "@miriel/shared";
 import type { FastifyInstance } from "fastify";
@@ -76,6 +79,15 @@ export function registerChatRoutes(app: FastifyInstance, deps: ServerDeps): void
         imageVersions: versions,
       };
       sse.send("anchors", anchors);
+
+      if (deps.findArt) {
+        try {
+          const items = await deps.findArt(last.content, retrieval);
+          if (items.length && sse.open) sse.send("art", { type: "art", items });
+        } catch (err) {
+          request.log.warn({ err }, "art lookup failed");
+        }
+      }
 
       for await (const ev of deps.answer({ query: last.content, retrieval, history })) {
         if (!sse.open) break;

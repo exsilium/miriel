@@ -9,16 +9,25 @@ export interface Highlight {
   nonce: number;
 }
 
+/** An artwork's box on an art book spread, outlined for a few seconds when the viewer arrives from the Art strip. */
+export interface BoxHighlight {
+  box: [number, number, number, number];
+  nonce: number;
+}
+
 interface Props {
   bookId: string;
   pdfNo: number;
   printed: number;
+  /** Placeholder and accessible name when the page is not a single printed page ("pp. 118–119" on an art book). */
+  label?: string | undefined;
   rendered: boolean;
   isCurrent: boolean;
   width: number;
   height: number;
   imageMode: boolean;
   highlight: Highlight | null;
+  boxHighlight?: BoxHighlight | null;
   onAspect: (heightOverWidth: number) => void;
 }
 
@@ -27,7 +36,7 @@ interface Props {
  * scrolling and page tracking work; renders pdf.js (or the page photo) only
  * when within the render window.
  */
-export const PageSlot = memo(function PageSlot({ bookId, pdfNo, printed, rendered, isCurrent, width, height, imageMode, highlight, onAspect }: Props) {
+export const PageSlot = memo(function PageSlot({ bookId, pdfNo, printed, label, rendered, isCurrent, width, height, imageMode, highlight, boxHighlight, onAspect }: Props) {
   const [items, setItems] = useState<string[] | null>(null);
   const [flash, setFlash] = useState(false);
   const [noMatch, setNoMatch] = useState(false);
@@ -78,10 +87,10 @@ export const PageSlot = memo(function PageSlot({ bookId, pdfNo, printed, rendere
       className={"page-slot" + (isCurrent ? " current" : "") + (flash ? " flash" : "")}
       data-page={pdfNo}
       style={{ width, height }}
-      aria-label={"Printed page " + printed}
+      aria-label={label ?? "Printed page " + printed}
     >
       {!rendered ? (
-        <div className="page-placeholder">{printed}</div>
+        <div className="page-placeholder">{label ?? printed}</div>
       ) : imageMode ? (
         <img className="page-image" src={pageImageUrl(bookId, printed)} alt={"Page " + printed} width={width} height={height} />
       ) : (
@@ -90,7 +99,7 @@ export const PageSlot = memo(function PageSlot({ bookId, pdfNo, printed, rendere
           width={width}
           renderAnnotationLayer={false}
           renderTextLayer
-          loading={<div className="page-placeholder">{printed}</div>}
+          loading={<div className="page-placeholder">{label ?? printed}</div>}
           onLoadSuccess={(page) => onAspect(page.originalHeight / page.originalWidth)}
           onGetTextSuccess={(tc) => setItems(tc.items.map((it) => ("str" in it ? it.str : "")))}
           onRenderTextLayerSuccess={onTextLayerRendered}
@@ -98,6 +107,19 @@ export const PageSlot = memo(function PageSlot({ bookId, pdfNo, printed, rendere
         />
       )}
       {noMatch && highlight && <div className="no-match">Quote not found on this page</div>}
+      {boxHighlight && (
+        <div
+          key={boxHighlight.nonce}
+          className="art-box"
+          aria-hidden="true"
+          style={{
+            left: boxHighlight.box[0] * 100 + "%",
+            top: boxHighlight.box[1] * 100 + "%",
+            width: (boxHighlight.box[2] - boxHighlight.box[0]) * 100 + "%",
+            height: (boxHighlight.box[3] - boxHighlight.box[1]) * 100 + "%",
+          }}
+        />
+      )}
     </div>
   );
 });

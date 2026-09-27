@@ -9,11 +9,18 @@ export interface BookRow {
   pdf_path: string;
   image_dir: string;
   image_pattern: string;
+  /** 'guide' | 'artbook' (migration 0007). */
+  kind: "guide" | "artbook";
+  /** Art books: {pdfPage, leftFolio} anchor of the folio rule; null for guides. */
+  spread: { pdfPage: number; leftFolio: number } | null;
 }
+
+export const BOOK_COLUMNS = "id, title, label, page_count, printed_to_pdf_offset, pdf_path, image_dir, image_pattern, kind, spread";
 
 export async function listBooks(pool: Pool): Promise<BookRow[]> {
   const { rows } = await pool.query<BookRow>(
-    "SELECT id, title, label, page_count, printed_to_pdf_offset, pdf_path, image_dir, image_pattern FROM books ORDER BY id",
+    // guides first, then art books, each by id
+    "SELECT " + BOOK_COLUMNS + " FROM books ORDER BY kind = 'artbook', id",
   );
   return rows;
 }

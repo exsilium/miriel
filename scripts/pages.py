@@ -5,6 +5,10 @@
 Source files live under DATA_DIR (environment or .env; default <repo>/data); the paths in
 config/books.json are relative to it. Run `scripts/check_offset.py --book <id>` to verify the offset
 of a new book; the result is recorded in the config as `offsetVerified`.
+
+Art books (`"kind": "artbook"`, docs/build-spec-artbooks.md) are in the same file but not in BOOKS, so no guide
+tool can be pointed at one; they load into ARTBOOKS, where the page number is the 1-based PDF page (a spread)
+and `spread` maps it to printed folios.
 """
 from __future__ import annotations
 
@@ -92,6 +96,8 @@ def load_books(config_path: Path = CONFIG_PATH, base: Path | None = None) -> dic
     raw = json.loads(config_path.read_text(encoding="utf-8"))
     books: dict[str, Book] = {}
     for key, b in raw.items():
+        if b.get("kind", "guide") != "guide":
+            continue
         if "{n}" not in b["imagePattern"]:
             raise ValueError(f"{config_path}: {key}.imagePattern must contain {{n}}")
         books[key] = Book(
@@ -103,4 +109,73 @@ def load_books(config_path: Path = CONFIG_PATH, base: Path | None = None) -> dic
     return books
 
 
+@dataclass(frozen=True)
+class ArtBook:
+    key: str            # config id, e.g. "art1"
+    title: str
+    label: str
+    pdf: Path
+    image_dir: Path     # spread JPEGs written by scripts/art_export.py
+    image_pattern: str  # "{n}" = 1-based PDF page number
+    page_count: int
+    spread_pdf_page: int    # this PDF page shows folios spread_left_folio and spread_left_folio + 1 ...
+    spread_left_folio: int  # ... and every later page adds 2
+    contents_path: Path
+    folio_verified: str | None = None
+
+    def image_path(self, pdf_page: int) -> Path:
+        return self.image_dir / self.image_pattern.replace("{n}", str(pdf_page))
+
+    def folios(self, pdf_page: int) -> list[int]:
+        """Printed folios on a PDF page: [left, right], or [] before the first spread (the cover)."""
+        if not self.spread_pdf_page <= pdf_page <= self.page_count:
+            return []
+        left = self.spread_left_folio + 2 * (pdf_page - self.spread_pdf_page)
+        return [left, left + 1]
+
+    def pdf_page_for_folio(self, folio: int) -> int | None:
+        if folio < self.spread_left_folio:
+            return None
+        p = self.spread_pdf_page + (folio - self.spread_left_folio) // 2
+        return p if p <= self.page_count else None
+
+    def contents(self) -> list[dict]:
+        """[{from, to, chapter, section, region}] by printed folio; [] when the contents file is missing."""
+        if not self.contents_path.exists():
+            return []
+        return json.loads(self.contents_path.read_text(encoding="utf-8"))
+
+    def contents_entries(self, pdf_page: int, contents: list[dict] | None = None) -> list[dict]:
+        """The most specific contents entry for each folio of the spread (a section beats its chapter), deduplicated;
+        two entries when a spread straddles a section boundary."""
+        entries = contents if contents is not None else self.contents()
+        out: list[dict] = []
+        for folio in self.folios(pdf_page):
+            hits = [e for e in entries if e["from"] <= folio <= e["to"]]
+            if hits:
+                best = min(hits, key=lambda e: e["to"] - e["from"])
+                if best not in out:
+                    out.append(best)
+        return out
+
+
+def load_artbooks(config_path: Path = CONFIG_PATH, base: Path | None = None) -> dict[str, ArtBook]:
+    base = base or data_dir()
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    out: dict[str, ArtBook] = {}
+    for key, b in raw.items():
+        if b.get("kind") != "artbook":
+            continue
+        if "{n}" not in b["imagePattern"]:
+            raise ValueError(f"{config_path}: {key}.imagePattern must contain {{n}}")
+        out[key] = ArtBook(
+            key=key, title=b["title"], label=b["label"], pdf=base / b["pdf"], image_dir=base / b["imageDir"],
+            image_pattern=b["imagePattern"], page_count=int(b["pageCount"]),
+            spread_pdf_page=int(b["spread"]["pdfPage"]), spread_left_folio=int(b["spread"]["leftFolio"]),
+            contents_path=base / b["contents"], folio_verified=b.get("folioVerified"),
+        )
+    return out
+
+
 BOOKS = load_books()
+ARTBOOKS = load_artbooks()

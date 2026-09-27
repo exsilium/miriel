@@ -18,6 +18,7 @@ import { createPool } from "@miriel/shared/db";
 import { answer } from "./answer/index.js";
 import { loadBookLabels } from "./books.js";
 import { RETRIEVE_DEFAULTS, resolveEntities, retrieve } from "./retrieval/index.js";
+import { findArt } from "./art-match.js";
 import { buildServer } from "./server.js";
 
 loadDotEnv();
@@ -31,6 +32,7 @@ const pool = createPool(undefined, 8, (err) => app.log.warn({ err: err.message }
 const embedder = createEmbeddingProvider();
 const reranker = envFlag("RERANK_ENABLED", false) ? createRerankProvider() : undefined;
 const client = new Anthropic();
+const embedQuery = async (text: string): Promise<number[]> => (await embedder.embed([text], "query")).embeddings[0]!;
 
 /** Book labels rarely change; refresh at most once a minute. */
 let labelsCache: { at: number; value: Record<string, string> } | undefined;
@@ -51,6 +53,8 @@ const app = await buildServer({
   thumbCacheDir,
   corsOrigin: process.env["CORS_ORIGIN"],
   retake,
+  embedQuery,
+  findArt: (query, retrieval) => findArt({ pool, embedQuery }, query, retrieval),
   retrieve: (query, opts) => retrieve({ pool, embedder, reranker }, query, opts),
   answer: async function* (input) {
     yield* answer({ client, labels: await labels(), log: (r) => app.log.info(r, "answer") }, input);

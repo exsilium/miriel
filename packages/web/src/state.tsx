@@ -3,12 +3,14 @@
  * which quote to highlight) and the search scope. React context only, per the spec.
  */
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import type { Book } from "./api.js";
+import { isArtBook, spreadFolios, spreadForFolio, type Book } from "./api.js";
 
 export interface ViewerTarget {
   book: string;
   page: number;
   quote: string | null;
+  /** Art book: the artwork's box on the spread ([x0, y0, x1, y1] fractions), outlined briefly on arrival. */
+  box?: [number, number, number, number] | null;
   /** Changes on every goTo so repeated clicks on the same page still trigger a scroll/highlight. */
   nonce: number;
 }
@@ -21,7 +23,7 @@ interface AppState {
   /** The book open in the viewer. */
   book: Book;
   target: ViewerTarget | null;
-  goTo: (book: string, page: number, quote?: string | null) => void;
+  goTo: (book: string, page: number, quote?: string | null, box?: [number, number, number, number] | null) => void;
   /** Book selector: open another book at its first printed page. */
   selectBook: (book: string) => void;
   scope: SearchScope;
@@ -35,19 +37,32 @@ interface AppState {
 
 const Ctx = createContext<AppState | null>(null);
 
+/**
+ * ?book=<id>&page=<printed page>. For an art book the link carries a printed folio (either page of a spread) and
+ * the viewer page is the PDF page of that spread.
+ */
 export function readDeepLink(books: Book[]): { book: Book; page: number } {
   const params = new URLSearchParams(window.location.search);
   const book = books.find((b) => b.id === params.get("book")) ?? books[0]!;
   const raw = Number(params.get("page"));
+  if (isArtBook(book)) {
+    return { book, page: (Number.isInteger(raw) && spreadForFolio(book, raw)) || 1 };
+  }
   const maxPrinted = book.pageCount - book.printedToPdfOffset;
   const page = Number.isInteger(raw) && raw >= 1 && raw <= maxPrinted ? raw : 1;
   return { book, page };
 }
 
-export function writeDeepLink(book: string, page: number): void {
+export function writeDeepLink(book: Book, page: number): void {
   const url = new URL(window.location.href);
-  url.searchParams.set("book", book);
-  url.searchParams.set("page", String(page));
+  url.searchParams.set("book", book.id);
+  if (isArtBook(book)) {
+    const folios = spreadFolios(book, page);
+    if (folios.length) url.searchParams.set("page", String(folios[0]));
+    else url.searchParams.delete("page");
+  } else {
+    url.searchParams.set("page", String(page));
+  }
   window.history.replaceState(null, "", url);
 }
 
@@ -58,27 +73,29 @@ export function AppStateProvider({ books, refreshBooks, children }: { books: Boo
   const [target, setTarget] = useState<ViewerTarget | null>({ book: initial.book.id, page: initial.page, quote: null, nonce: 0 });
   const [scope, setScope] = useState<SearchScope>("all");
 
-  const goTo = useCallback((book: string, page: number, quote: string | null = null) => {
+  const goTo = useCallback((book: string, page: number, quote: string | null = null, box: [number, number, number, number] | null = null) => {
     setBookId(book);
-    setTarget((t) => ({ book, page, quote, nonce: (t?.nonce ?? 0) + 1 }));
+    setTarget((t) => ({ book, page, quote, box, nonce: (t?.nonce ?? 0) + 1 }));
   }, []);
 
   const selectBook = useCallback(
     (book: string) => {
       if (book === bookId) return;
       setViewerPageState(1);
-      writeDeepLink(book, 1);
+      const b = books.find((x) => x.id === book);
+      if (b) writeDeepLink(b, 1);
       goTo(book, 1);
     },
-    [bookId, goTo],
+    [bookId, books, goTo],
   );
 
   const setViewerPage = useCallback(
     (page: number) => {
       setViewerPageState(page);
-      writeDeepLink(bookId, page);
+      const b = books.find((x) => x.id === bookId);
+      if (b) writeDeepLink(b, page);
     },
-    [bookId],
+    [bookId, books],
   );
 
   const value = useMemo<AppState>(() => {

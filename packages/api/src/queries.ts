@@ -3,11 +3,11 @@
  */
 import { normalizeName } from "@miriel/shared";
 import type { Pool } from "@miriel/shared/db";
-import type { BookRow } from "./books.js";
+import { BOOK_COLUMNS, type BookRow } from "./books.js";
 
 export async function getBook(pool: Pool, id: string): Promise<BookRow | undefined> {
   const { rows } = await pool.query<BookRow>(
-    "SELECT id, title, label, page_count, printed_to_pdf_offset, pdf_path, image_dir, image_pattern FROM books WHERE id = $1",
+    "SELECT " + BOOK_COLUMNS + " FROM books WHERE id = $1",
     [id],
   );
   return rows[0];

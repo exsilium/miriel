@@ -5,7 +5,8 @@
  * file and recomputed only when the file's size or mtime changes: after a retake swaps the PDF in (worker or
  * CLI), the next /api/books call sees the new revision without any signal from the worker.
  *
- * imageVersion: sha256 prefix of a page photo, from pages.image_sha256 (written by `indexer ingest`).
+ * imageVersion: sha256 prefix of a page photo, from pages.image_sha256 (written by `indexer ingest`); for an art book
+ * the spread JPEG, from art_spreads.image_sha256 (its "page" is the PDF page).
  *
  * A URL carrying ?v=<current version> is cached as immutable; without ?v (or with an old one) the response is
  * revalidated, so a replaced page can never hide behind a long-lived cache entry.
@@ -55,7 +56,10 @@ export async function fileRevision(file: string): Promise<string> {
 /** printed page -> imageVersion for the pages of one book that have a recorded photo hash. */
 export async function imageVersions(pool: Pool, book: string): Promise<Record<string, string>> {
   const { rows } = await pool.query<{ page: number; image_sha256: string }>(
-    "SELECT page, image_sha256 FROM pages WHERE book_id = $1 AND image_sha256 IS NOT NULL ORDER BY page",
+    `SELECT page, image_sha256 FROM pages WHERE book_id = $1 AND image_sha256 IS NOT NULL
+     UNION ALL
+     SELECT pdf_page, image_sha256 FROM art_spreads WHERE book_id = $1 AND image_sha256 IS NOT NULL
+     ORDER BY 1`,
     [book],
   );
   const out: Record<string, string> = {};
@@ -65,7 +69,9 @@ export async function imageVersions(pool: Pool, book: string): Promise<Record<st
 
 export async function imageVersion(pool: Pool, book: string, page: number): Promise<string | null> {
   const { rows } = await pool.query<{ image_sha256: string | null }>(
-    "SELECT image_sha256 FROM pages WHERE book_id = $1 AND page = $2",
+    `SELECT image_sha256 FROM pages WHERE book_id = $1 AND page = $2
+     UNION ALL
+     SELECT image_sha256 FROM art_spreads WHERE book_id = $1 AND pdf_page = $2`,
     [book, page],
   );
   return shortVersion(rows[0]?.image_sha256);
