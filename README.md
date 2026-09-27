@@ -17,14 +17,15 @@ There is also a quest checklist, u/Stellarwand's NPC-interaction lists for the b
 | --- | --- | --- | --- |
 | `config/books.json` | the book list: file names, page offset, page count | yes | – |
 | `config/checklists.json`, `config/checklists/` | the quest checklists (Markdown lists with item ids) and name aliases | yes | – |
-| `data/` | per book: the OCR'd PDF and a folder with one photo per PDF page; `data/_versions/` and `<imageDir>/_versions/` hold retake history | no | the digitisation itself (photos, OCR); keep a backup |
+| `data/` | per guide: the OCR'd PDF and a folder with one photo per PDF page; `data/_versions/` and `<imageDir>/_versions/` hold retake history. Per art book: the PDF, its hand-typed `.contents.json` and a folder of spread JPEGs | no | guides: the digitisation itself (photos, OCR); keep a backup. Art books: the PDF and contents file are the source; the spread folder is rebuilt in seconds with `scripts/art_export.py` |
 | `out/<book>/` | extraction output, one `pNNN.json` per page, plus QA report and run log | no | **expensive**: about $60–105 and 1¼–2 h per book (model calls; Vol 1 $78, Vol 2 $104, Vol 3 $61) |
+| `out/<art book>/` | artwork labels, one `sNNNN.json` per spread, hand corrections in `_overrides.json`, QA report and run log | no | about $10–14 and 10–20 min per art book (Art 1 $11, Art 2 $14, Art 3 $10); `_overrides.json` is hand-made |
 | `out/checklists/` | checklist build, page links, overrides, QA report | no | seconds (`docs/checklist.md`), except hand-made `*_overrides.json` |
 | database (volume `dbdata`) | chunks, embeddings, entities: built from `out/`; also **user accounts, runs and checklist progress, which exist nowhere else** | no | books: minutes with `npm run index`, or restore a dump (below); accounts and progress: only from a dump |
 | `.env` | API keys and settings | no | copy it, or fill in from `.env.example` |
 | volumes `thumbs`, `uploads` | thumbnail cache; retake photos waiting to be processed | no | regenerated on demand / empty when no retake is pending |
 
-`data/` for the three configured books:
+`data/` for the configured books (three guides, three art books):
 
 ```
 data/
@@ -34,17 +35,29 @@ data/
   Elden Ring Vol 2 - Shards of the Shattering/   Elden Ring Vol 2 - Shards of the Shattering - 1.jpg … - 530.jpg
   Elden Ring Vol 3 - Shadow of the Erdtree.pdf
   Elden Ring Vol 3 - Shadow of the Erdtree/      Elden Ring Vol 3 - Shadow of the Erdtree - 1.jpg … - 418.jpg
+  Elden Ring Art Book Volume 1 Wide.pdf
+  Elden Ring Art Book Volume 1 Wide.contents.json
+  Elden Ring Art Book Volume 1 Wide/             Elden Ring Art Book Volume 1 Wide - 1.jpg … - 220.jpg
+  Elden Ring Art Book Volume 2 Wide.pdf
+  Elden Ring Art Book Volume 2 Wide.contents.json
+  Elden Ring Art Book Volume 2 Wide/             Elden Ring Art Book Volume 2 Wide - 1.jpg … - 195.jpg
+  Elden Ring Art Book Volume 3 Wide.pdf
+  Elden Ring Art Book Volume 3 Wide.contents.json
+  Elden Ring Art Book Volume 3 Wide/             Elden Ring Art Book Volume 3 Wide - 1.jpg … - 163.jpg
 ```
 
 The names come from `pdf`, `imageDir` and `imagePattern` in `config/books.json`; the image folder and files use the PDF's spelling and case (Vol 2 and Vol 3 were exported as "… Of The …" and renamed, see `_rename-log.json` in the folder) (`{n}` = PDF page number = printed page + `printedToPdfOffset`). Photo n must be the photo embedded in PDF page n. How the PDFs were made (vFlat → img2pdf → ocrmypdf → outline → metadata) is described in `docs/build-spec-retakes.md` §1.
+
+Art books (`"kind": "artbook"` in the config) have no text layer and no photos: file n of the image folder is PDF page n (one spread; the cover is file 1), written from the PDF by `scripts/art_export.py` (byte for byte, or stitched when the PDF tiles a spread from two JPEGs, as in Art Book Vol 3). The `.contents.json` next to the PDF maps printed folios to chapters and sections; it is typed in once from the book's contents page (`docs/adding-an-art-book.md` §5) and cannot be regenerated, so back it up with the PDF.
 
 ## Fresh install (a new machine, starting from the source files)
 
 1. `git clone <repo> miriel && cd miriel`
 2. `cp .env.example .env` and fill in the two API keys.
-3. Put the PDFs and photo folders into `data/` as above. A book that is not in `config/books.json` yet: add it first, see `docs/adding-a-book.md`.
+3. Put the PDFs and photo folders into `data/` as above, and the art books' PDFs and `.contents.json` files. A book that is not in `config/books.json` yet: add it first, see `docs/adding-a-book.md` (guides) or `docs/adding-an-art-book.md` (art books).
 4. Check each book's page mapping (folio in the text layer, and every photo against the PDF):
    `npm run py -- scripts/check_offset.py --book vol1 --images all`
+   For each art book, write the spread folder and check it: `npm run py -- scripts/art_export.py --book art1`, then `npm run py -- scripts/art_check.py --book art1`.
 5. **If you have `out/` from somewhere, copy it in and skip this step.** Otherwise extract every page (the expensive step; a fixture run first is described in `docs/adding-a-book.md`):
    ```
    docker compose --profile retake run -d --name extract-vol1 --entrypoint python retake scripts/extract.py --book vol1 --workers 4 1-512
@@ -52,8 +65,9 @@ The names come from `pdf`, `imageDir` and `imagePattern` in `config/books.json`;
    npm run py -- scripts/qa_report.py --book vol1
    ```
    The run is resumable: start the same command again and it skips pages that already have valid output.
+   Art books without `out/<art id>/`: `npm run py -- scripts/art_label.py --book art1 --workers 4 1-220`, then `npm run py -- scripts/art_qa.py --book art1` (same resumable runner; about 10–20 min per book).
 6. `npm run up` (`docker compose up --build -d`): builds the images, creates the database, applies migrations, starts the app at http://localhost:3000 (on the LAN: `http://<this machine>:3000`).
-7. `npm run index` (`docker compose --profile index run --rm indexer`): chunks and embeds every book from `out/` into the database. A few minutes for the three books.
+7. `npm run index` (`docker compose --profile index run --rm indexer`): chunks and embeds every guide and art book from `out/` into the database. A few minutes for all six.
 8. Create your admin account: `npm run user -- add <name> --admin` (`docker compose --profile index run --rm indexer user add <name> --admin`). It prints a one-time password; log in with it (top right, "Log in") and choose your own. More accounts are made in the app under your name > Users. Reading and chat stay open without a login unless `AUTH_REQUIRED=true` is set in `.env` (do that when the site is reachable from outside your network; with https also `COOKIE_SECURE=true`).
 
 ## Moving an existing stack to another machine (no re-extraction, no re-embedding)
@@ -67,7 +81,7 @@ docker compose exec db pg_dump -U miriel -Fc -f /tmp/miriel.dump miriel
 docker compose cp db:/tmp/miriel.dump ./miriel.dump
 ```
 
-Then copy to the new machine: `data/` (≈ 2.4 GB for the three books, plus up to 3 old PDF versions per book once retakes were done), `out/` (≈ 25 MB), `.env` (holds your keys: copy it securely) and `miriel.dump` (≈ 50 MB; it contains book text, keep it out of git: `*.dump` is ignored). The dump is written inside the container and copied out with `docker compose cp` on purpose: redirecting `pg_dump` output with `>` in Windows PowerShell corrupts the binary file.
+Then copy to the new machine: `data/` (≈ 3.2 GB: 2.4 GB for the three guides, 0.8 GB for the art books, of which the 0.4 GB of spread folders can be left out and rebuilt with `scripts/art_export.py`; plus up to 3 old PDF versions per guide once retakes were done), `out/` (≈ 30 MB), `.env` (holds your keys: copy it securely) and `miriel.dump` (≈ 50 MB; it contains book text, keep it out of git: `*.dump` is ignored). The dump is written inside the container and copied out with `docker compose cp` on purpose: redirecting `pg_dump` output with `>` in Windows PowerShell corrupts the binary file.
 
 **On the new machine:**
 

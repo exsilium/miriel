@@ -61,5 +61,20 @@
     },
     "contents": "Elden Ring Art Book Volume 2 Wide.contents.json",
     "folioVerified": "2026-09-26, footer folios checked on pdf 12-191 (22-381); pdf 192-195 back matter without folios"
+  },
+  "art3": {
+    "kind": "artbook",
+    "title": "Elden Ring Official Art Book Vol 3",
+    "label": "Art 3",
+    "pdf": "Elden Ring Art Book Volume 3 Wide.pdf",
+    "imageDir": "Elden Ring Art Book Volume 3 Wide",
+    "imagePattern": "Elden Ring Art Book Volume 3 Wide - {n}.jpg",
+    "pageCount": 163,
+    "spread": {
+      "pdfPage": 2,
+      "leftFolio": 2
+    },
+    "contents": "Elden Ring Art Book Volume 3 Wide.contents.json",
+    "folioVerified": "2026-09-27, footer folios checked on pdf 12-160 every 10th + 159/160 (22-319); pdf 161-163 back matter without folios"
   }
 }

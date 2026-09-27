@@ -8,11 +8,11 @@ Probe of 2026-09-26 (PyMuPDF, 9 spreads rendered and read):
 
 | | Art Book Vol 1 | Art Book Vol 2 | Vol 3 |
 |---|---|---|---|
-| PDF | `Elden Ring Art Book Volume 1 Wide.pdf`, 114 MB | `Elden Ring Art Book Volume 2 Wide.pdf`, 81 MB | not yet added |
-| PDF pages | 220: page 1 cover (1379 × 1920), 219 spreads (2714 × 1920) | 195: cover + 194 spreads | |
-| Content | one DCT (JPEG) image per page, same pixel size as the page; **no text layer, no outline** | same | |
-| Folios | PDF page *n* ≥ 2 shows printed pp. 2n−2 (left) and 2n−1 (right); checked at n = 60, 120, 180. ⚠ check the whole book (Phase A) | same; checked at n = 50, 150 | |
-| Chapters (contents page, pp. 2–3) | 1 Gallery: Illustrations · 2 Concept Art: The Lands Between (per region and legacy dungeon, pp. 50–361) · 3 Character: Tarnished and Others | ⚠ 4 Adversary: Bosses and Enemies, then weapons, items … (read in Phase A) | |
+| PDF | `Elden Ring Art Book Volume 1 Wide.pdf`, 114 MB | `Elden Ring Art Book Volume 2 Wide.pdf`, 81 MB | `Elden Ring Art Book Volume 3 Wide.pdf`, 222 MB (added 2026-09-27, docs/adding-an-art-book.md) |
+| PDF pages | 220: page 1 cover (1379 × 1920), 219 spreads (2714 × 1920) | 195: cover + 194 spreads | 163: cover (1280 × 1811) + 162 spreads (2560 × 1811) |
+| Content | one DCT (JPEG) image per page, same pixel size as the page; **no text layer, no outline** | **two** JPEGs per spread, one per printed page, tiled edge to edge (quality 100); `art_export.py` stitches them |
+| Folios | PDF page *n* ≥ 2 shows printed pp. 2n−2 (left) and 2n−1 (right); checked at n = 60, 120, 180. ⚠ check the whole book (Phase A) | same; checked at n = 50, 150 | same; every 10th spread, pdf 161–163 without folios |
+| Chapters (contents page, pp. 2–3) | 1 Gallery: Illustrations · 2 Concept Art: The Lands Between (per region and legacy dungeon, pp. 50–361) · 3 Character: Tarnished and Others | ⚠ 4 Adversary: Bosses and Enemies, then weapons, items … (read in Phase A) | 7 Gallery (DLC) · 8 Concept Art: The Land of Shadow · 9 Adversary · 10 Character · 11 Weapon · 12 Inventory (all DLC, pp. 4–319) |
 | Captions | **Japanese**, one `◆` label under or beside an artwork (◆魔術学院レアルカリア = Raya Lucaria Academy, ◆接ぎ木の貴公子 = Grafted Scion); many artworks, whole object sheets and most location paintings have none | same (◆輝石の杖 = Glintstone Staff) | |
 | Layouts | full-spread painting across the gutter; one or two large figures; grids up to ~14 pieces, sometimes on a darker panel; chapter openers | same | |
 | Background | flat light grey (≈ #d8d8d8) or black around the art | same | |
@@ -124,7 +124,7 @@ Goal: both art books configured and verified, spreads exported, artworks cut out
 - Names: caption translation and visual identification allowed, labelled by source, verified against guide entities; unverified shown lower.
 - Strip shows the cut-out artwork; click opens the full spread.
 - Art books are browsable in the viewer; deep links take a printed folio.
-- Build with the two art books present; the third follows the runbook.
+- Build with the two art books present; the third follows the runbook (done 2026-09-27: `art3`, $10.08; its PDF tiles each spread from two JPEGs, which `art_export.py` now stitches and re-encodes with the source tables, the user's choice over a lossless jpegtran join).
 - Phase D: subjects are the question's anchor entities only (consulted-page entities buried the subject); titled-name, plural and text-search rules and their measured thresholds are in docs/retrieval.md ("Art next to answers").
 - Phase A fixture (9 spreads): `claude-opus-5-5`, effort high, chosen for the full run ($0.059/spread; `claude-sonnet-5` thought longer, was not cheaper and hit the output cap on a 42-icon spread). Name check extended with a `prefix` match ("Queen Marika the Eternal" → "Queen Marika").
 

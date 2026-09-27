@@ -1,23 +1,29 @@
 """Write the page images of an art book to DATA_DIR/<imageDir>/, byte for byte from the PDF.
 
-Art book PDFs (docs/build-spec-artbooks.md) carry exactly one JPEG per page covering the whole page. That stream
-is the page image: it is copied out unchanged (no decode, no re-encode), so a spread file is identical to what
-the PDF shows and can always be rebuilt from the PDF. File n is PDF page n (`imagePattern`, {n} = PDF page).
+Art book PDFs (docs/build-spec-artbooks.md) carry one JPEG per page covering the whole page (Vol 1, Vol 2). That
+stream is the page image: it is copied out unchanged (no decode, no re-encode), so a spread file is identical to
+what the PDF shows and can always be rebuilt from the PDF. File n is PDF page n (`imagePattern`, {n} = PDF page).
+
+Some PDFs (Vol 3) tile a spread from several JPEGs side by side, one per printed page. Those are decoded, pasted
+edge to edge at their native size and saved as one JPEG with the first tile's quantization tables and chroma
+subsampling (deterministic, so re-runs and --check compare by hash on the same Pillow build).
 
   uv run python scripts/art_export.py --book art1            # every page; files that already match are skipped
   uv run python scripts/art_export.py --book art1 --check    # compare only, write nothing
 
-Fails loudly when a page does not have exactly one image, the image is not a plain JPEG stream, or it does not
-cover the page (such a PDF needs another export route; ask before adding one).
+Fails loudly when a page's images are not plain JPEG streams, or they do not cover the page (one image, or tiles
+of equal height in a single row without gaps or overlaps) (such a PDF needs another export route; ask before adding one).
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import sys
 from pathlib import Path
 
 import pymupdf
+from PIL import Image, JpegImagePlugin
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pages import ARTBOOKS, ArtBook  # noqa: E402
@@ -27,23 +33,53 @@ class ExportError(Exception):
     pass
 
 
+TOLERANCE = 1.5   # points: how far an image edge may sit from the page edge or the next tile
+
+
 def page_jpeg(doc: pymupdf.Document, index: int) -> bytes:
-    """The raw JPEG stream of the single full-page image on page `index` (0-based)."""
+    """The spread JPEG of page `index` (0-based): the raw stream of a single full-page image, or its tiles stitched."""
     page = doc[index]
     images = page.get_images(full=True)
-    if len(images) != 1:
-        raise ExportError(f"PDF page {index + 1}: {len(images)} images, expected 1")
-    xref, _smask, width, height, _bpc, _cs, _alt, _name, filt = images[0][:9]
-    if filt != "DCTDecode":
-        raise ExportError(f"PDF page {index + 1}: image filter {filt!r}, expected DCTDecode")
-    rects = page.get_image_rects(xref)
+    if not images:
+        raise ExportError(f"PDF page {index + 1}: no image")
     pr = page.rect
-    if len(rects) != 1 or any(abs(a - b) > 1.5 for a, b in zip(rects[0], pr)):
-        raise ExportError(f"PDF page {index + 1}: image at {rects} does not cover the page {pr}")
-    data = doc.xref_stream_raw(xref)
-    if not data.startswith(b"\xff\xd8"):
-        raise ExportError(f"PDF page {index + 1}: image stream is not a JPEG ({data[:4]!r})")
-    return data
+    tiles: list[tuple[pymupdf.Rect, bytes, int, int]] = []
+    for xref, _smask, width, height, _bpc, _cs, _alt, _name, filt, *_ in images:
+        if filt != "DCTDecode":
+            raise ExportError(f"PDF page {index + 1}: image filter {filt!r}, expected DCTDecode")
+        rects = page.get_image_rects(xref)
+        if len(rects) != 1:
+            raise ExportError(f"PDF page {index + 1}: image {xref} is drawn {len(rects)} times")
+        data = doc.xref_stream_raw(xref)
+        if not data.startswith(b"\xff\xd8"):
+            raise ExportError(f"PDF page {index + 1}: image stream is not a JPEG ({data[:4]!r})")
+        tiles.append((rects[0], data, width, height))
+    tiles.sort(key=lambda t: t[0].x0)
+    covers = (abs(tiles[0][0].x0 - pr.x0) <= TOLERANCE and abs(tiles[-1][0].x1 - pr.x1) <= TOLERANCE
+              and all(abs(r.y0 - pr.y0) <= TOLERANCE and abs(r.y1 - pr.y1) <= TOLERANCE for r, *_ in tiles)
+              and all(abs(a[0].x1 - b[0].x0) <= TOLERANCE for a, b in zip(tiles, tiles[1:])))
+    if not covers:
+        raise ExportError(f"PDF page {index + 1}: images at {[str(t[0]) for t in tiles]} do not tile the page {pr}")
+    if len(tiles) == 1:
+        return tiles[0][1]
+    if len({h for *_, h in tiles}) != 1:
+        raise ExportError(f"PDF page {index + 1}: tiles differ in pixel height {[h for *_, h in tiles]}")
+    return stitch([t[1] for t in tiles])
+
+
+def stitch(jpegs: list[bytes]) -> bytes:
+    """Paste JPEG tiles left to right and encode once, keeping the first tile's tables and subsampling."""
+    ims = [Image.open(io.BytesIO(b)) for b in jpegs]
+    first = ims[0]
+    canvas = Image.new("RGB", (sum(im.width for im in ims), first.height))
+    x = 0
+    for im in ims:
+        canvas.paste(im.convert("RGB"), (x, 0))
+        x += im.width
+    out = io.BytesIO()
+    canvas.save(out, "JPEG", qtables=first.quantization, subsampling=JpegImagePlugin.get_sampling(first),
+                dpi=first.info.get("dpi", (72, 72)), optimize=True)
+    return out.getvalue()
 
 
 def export(book: ArtBook, check_only: bool) -> int:
