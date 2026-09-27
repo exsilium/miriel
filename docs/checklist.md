@@ -111,6 +111,6 @@ Most "check" items point to the right walkthrough, map or boss page.
 - Ticking needs a login; reading the list and Ask do not (unless `AUTH_REQUIRED=true`).
 - Admins create accounts in the app (your name > Users) or with `npm run user -- add <name> [--admin]`. The admin
   list shows items done per user.
-- Deleting a user deletes their runs and progress. `npm run reset` drops the database, and with it every
+- Deleting a user (Users page, or `npm run user -- del <name>`) deletes their runs and progress. `npm run reset` drops the database, and with it every
   account and tick. `npm run export` (README, "Backup, restore and moving to another machine") keeps them, and the backup includes the
   `users`, `sessions`, `runs`, `progress`, `checklists` and `checklist_items` tables.

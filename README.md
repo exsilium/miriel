@@ -112,7 +112,7 @@ After the move, a quick check: `npm run py -- scripts/check_offset.py --book vol
 | `npm run export` | – (Node script, see above) | back up database, `data/`, `out/` and pending uploads to `backups/miriel_YYYYMMDD.zip` |
 | `npm run import` | – | restore the newest backup (asks before replacing anything) |
 | `npm run logs` | `docker compose logs -f api web` | follow the app logs |
-| `npm run user -- add <name> [--admin]` | `docker compose --profile index run --rm indexer user add <name> [--admin]` | create an account (prints a one-time password); also `user list`, `user reset <name>`, `user role <name> admin\|user` for when nobody can log in |
+| `npm run user -- add <name> [--admin]` | `docker compose --profile index run --rm indexer user add <name> [--admin]` | create an account (prints a one-time password); also `user list`, `user reset <name>`, `user role <name> admin\|user` for when nobody can log in, and `user del <name>` (deletes the account with its runs and progress; asks first, `--yes` skips) |
 | `npm run py -- scripts/<x>.py …` | `docker compose --profile retake run --rm --build --entrypoint python retake scripts/<x>.py …` | any Python script (extract, check_offset, qa_report, …) in the tools image |
 | `npm run retake -- …` | `docker compose --profile retake run --rm --build retake …` | page retakes from the command line (`docs/retakes.md`) |
 | `npm run py -- scripts/checklist_build.py`, `npm run checklist-pages` | `docker compose run --rm --no-deps -v ./out:/app/out api node packages/api/dist/checklist-pages-cli.js` | rebuild the checklists after editing them (`docs/checklist.md`), then `npm run index` |

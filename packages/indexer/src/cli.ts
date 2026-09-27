@@ -6,10 +6,11 @@
  * indexer reset  --book <id>                   # guides and art books
  * indexer dump   --book <id> --page 159        # chunks as stored in the database
  * indexer dump   --file out/<id>/p159.json    # chunks the chunker would produce, no database
- * indexer user   add <name> [--admin] | list | reset <name> | role <name> admin|user
+ * indexer user   add <name> [--admin] | list | reset <name> | role <name> admin|user | del <name> [--yes]
  * indexer checklists [--checklist <id>] [--force] [--dry-run]   # out/checklists/ -> checklists, checklist_items
  */
 import { existsSync } from "node:fs";
+import { createInterface } from "node:readline/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import {
@@ -47,6 +48,9 @@ const USAGE = `usage:
   indexer user   list
   indexer user   reset <name>            new one-time password, ends the user's sessions
   indexer user   role <name> admin|user
+  indexer user   del <name> [--yes]      delete the account with its runs, checklist progress and sessions (asks
+                         first; --yes skips the question). Its retake jobs stay, without an uploader.
+                         Also the last admin (unlike the Users page): add a new one with user add --admin.
   indexer checklists [--checklist <id>] [--force] [--dry-run]
                          quest checklists from <repo>/out/checklists/ (config/checklists.json); also run by
                          ingest --all. Unchanged lists are skipped; items gone from a list are retired.
@@ -75,6 +79,7 @@ async function main(argv: string[]): Promise<number> {
       force: { type: "boolean", default: false },
       provider: { type: "string" },
       admin: { type: "boolean", default: false },
+      yes: { type: "boolean", default: false },
       checklist: { type: "string", multiple: true },
       "database-url": { type: "string" },
       env: { type: "string" },
@@ -283,7 +288,7 @@ async function main(argv: string[]): Promise<number> {
     }
 
     case "user":
-      return userCommand(positionals.slice(1), values.admin, values["database-url"]);
+      return userCommand(positionals.slice(1), values.admin, values.yes, values["database-url"]);
 
     default:
       log("unknown command: " + command + "\n\n" + USAGE);
@@ -292,7 +297,7 @@ async function main(argv: string[]): Promise<number> {
 }
 
 /** Accounts (docs/build-spec-checklist.md §3 decision 9): the first admin, and recovery when nobody can log in. */
-async function userCommand(args: string[], admin: boolean, databaseUrl: string | undefined): Promise<number> {
+async function userCommand(args: string[], admin: boolean, yes: boolean, databaseUrl: string | undefined): Promise<number> {
   const [sub, name, role] = args;
   const pool = createPool(databaseUrl);
   const store = pgAuthStore(pool);
@@ -328,8 +333,33 @@ async function userCommand(args: string[], admin: boolean, databaseUrl: string |
         process.stdout.write(user.username + " is now " + user.role + "\n");
         return 0;
       }
+      case "del":
+      case "delete": {
+        if (!name) throw new Error("usage: indexer user del <name> [--yes]");
+        const u = (await store.listUsers()).find((x) => x.username === normalizeUsername(name));
+        if (!u) throw new Error("no user " + name);
+        const what =
+          u.role + " " + u.username + ": " + u.runs + " run(s), " + u.done + " ticked checklist item(s), " + u.sessions + " active session(s)";
+        if (!yes) {
+          if (!process.stdin.isTTY) throw new Error("deleting " + what + " cannot be undone: pass --yes to confirm");
+          const rl = createInterface({ input: process.stdin, output: process.stdout });
+          const answer = await rl.question("Delete " + what + "? This cannot be undone. Type the username to confirm: ");
+          rl.close();
+          if (normalizeUsername(answer.trim()) !== u.username) {
+            log("not deleted");
+            return 1;
+          }
+        }
+        // Unlike the Users page (removeUser), the CLI may delete the last admin: `user add --admin` makes a new one.
+        await store.deleteUser(u.id);
+        process.stdout.write("deleted " + u.username + "\n");
+        if (u.role === "admin" && (await store.countActiveAdmins()) === 0) {
+          process.stdout.write("no active admin left: npm run user -- add <name> --admin\n");
+        }
+        return 0;
+      }
       default:
-        log("usage: indexer user add <name> [--admin] | list | reset <name> | role <name> admin|user");
+        log("usage: indexer user add <name> [--admin] | list | reset <name> | role <name> admin|user | del <name> [--yes]");
         return 2;
     }
   } catch (err) {
