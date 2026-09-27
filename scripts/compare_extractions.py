@@ -12,7 +12,7 @@ import re
 import sys
 from pathlib import Path
 
-FILE_RE = re.compile(r"^p(\d{4})\.json$")
+FILE_RE = re.compile(r"^p(\d{3})\.json$")
 # Tables may sit inside sidebars, i.e. lines prefixed with one or more "> ".
 TABLE_ROW = re.compile(r"^\s*(?:>\s*)*\|.*\|\s*$")
 SEP_ROW = re.compile(r"^\s*(?:>\s*)*\|[\s:|-]+\|\s*$")

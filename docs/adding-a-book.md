@@ -118,7 +118,7 @@ docker logs -f extract-vol3      # progress lines [n/N] with cost per page; dock
 ```
 
 - Pages with valid output are skipped, so the same command resumes after a crash or reboot.
-- A page that fails every retry leaves `out/vol3/_failed/pNNNN.txt`. If the API's output content filter
+- A page that fails every retry leaves `out/vol3/_failed/pNNN.txt`. If the API's output content filter
   blocked it, transcribe it in parts:
   `uv run python scripts/extract_split.py --book vol3 --page <n> [--parts "top=0,0,1,0.56;…"]`.
 - The final summary prints tokens, cost and wall time; `out/vol3/_runlog.jsonl` has every attempt.

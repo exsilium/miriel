@@ -170,7 +170,7 @@ class NpcIndex:
         for key in books or list(BOOKS):
             npc_pages: list[int] = []
             heads: list[tuple[int, str]] = []
-            for f in sorted((out_root / key).glob("p[0-9][0-9][0-9][0-9].json")):
+            for f in sorted((out_root / key).glob("p[0-9][0-9][0-9].json")):
                 page = json.loads(f.read_text(encoding="utf-8"))
                 for e in page["entities"]:
                     if e["type"] in NPC_TYPES:

@@ -21,9 +21,9 @@ and the extraction estimate against RETAKE_DAILY_BUDGET_USD (default 10). Then:
              document info + XMP byte-identical, every other page's content unchanged, photo == image file,
              folio, text layer)
   commit_pdf old PDF -> DATA_DIR/_versions/<pdf>.v<k>.pdf (last 3 kept), each replaced page saved on its own as
-             DATA_DIR/_versions/pages/<book>/pNNNN.v<j>.pdf, temp file renamed over the book PDF
+             DATA_DIR/_versions/pages/<book>/pNNN.v<j>.pdf, temp file renamed over the book PDF
   commit_images  old photo -> <imageDir>/_versions/<name>.v<j>.jpg, new photo in place, <imageDir>/_versions/log.jsonl
-  history    out/<book>/pNNNN.json -> out/<book>/_history/pNNNN.v<j>.json
+  history    out/<book>/pNNN.json -> out/<book>/_history/pNNN.v<j>.json
   extract    extract.py --force (same model, effort and prompt as the full run), tagged with the retake id
   ingest     indexer ingest --book <id> --pages ...
   thumbs     delete the page's cached thumbnail
@@ -193,19 +193,19 @@ class Store:
         return self.image_versions_dir / f"{img.stem}.v{j}{img.suffix}"
 
     def page_pdf_version(self, printed: int, j: int) -> Path:
-        return self.root / "pages" / self.book.key / f"p{printed:04d}.v{j}.pdf"
+        return self.root / "pages" / self.book.key / f"p{printed:03d}.v{j}.pdf"
 
     def page_json(self, printed: int) -> Path:
-        return self.out_dir / f"p{printed:04d}.json"
+        return self.out_dir / f"p{printed:03d}.json"
 
     def json_version(self, printed: int, j: int) -> Path:
-        return self.out_dir / "_history" / f"p{printed:04d}.v{j}.json"
+        return self.out_dir / "_history" / f"p{printed:03d}.v{j}.json"
 
     def next_page_version(self, printed: int) -> int:
         img = self.image(printed)
         pats = [(self.image_versions_dir, re.escape(img.stem) + r"\.v(\d+)" + re.escape(img.suffix) + "$"),
-                (self.root / "pages" / self.book.key, rf"p{printed:04d}\.v(\d+)\.pdf$"),
-                (self.out_dir / "_history", rf"p{printed:04d}\.v(\d+)\.json$")]
+                (self.root / "pages" / self.book.key, rf"p{printed:03d}\.v(\d+)\.pdf$"),
+                (self.out_dir / "_history", rf"p{printed:03d}\.v(\d+)\.json$")]
         used = [0]
         for d, pat in pats:
             if d.exists():
@@ -478,7 +478,7 @@ def build_pages(book: Book, doc: pymupdf.Document, items: list[dict], work: Path
 def splice(book: Book, sources: list[tuple[int, Path, int]], tmp: Path, work: Path) -> None:
     """Replace the content of the book's pages in place. sources: (printed, pdf, page index in it). The page objects
     stay where they are, so outline destinations keep resolving; the replaced pages are saved on their own first
-    (work/old_pNNNN.pdf) for rollback."""
+    (work/old_pNNN.pdf) for rollback."""
     import pikepdf
 
     with pikepdf.open(book.pdf) as pdf:
@@ -488,7 +488,7 @@ def splice(book: Book, sources: list[tuple[int, Path, int]], tmp: Path, work: Pa
                 idx = book.pdf_index(printed)
                 single = pikepdf.new()
                 single.pages.append(pdf.pages[idx])
-                single.save(work / f"old_p{printed:04d}.pdf")
+                single.save(work / f"old_p{printed:03d}.pdf")
                 src = opened.setdefault(src_path, pikepdf.open(src_path))
                 page = pdf.pages[idx].obj
                 keep = page.objgen
@@ -658,7 +658,7 @@ class Job:
                 say(f"  keeping the current PDF as _versions/{vfile.name}")
                 copy_atomic(pdf, vfile)
             for it in self.j["pages"]:
-                saved = self.work / f"old_p{it['printed']:04d}.pdf"
+                saved = self.work / f"old_p{it['printed']:03d}.pdf"
                 dst = self.store.page_pdf_version(it["printed"], it["version"])
                 if saved.exists():
                     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -855,7 +855,7 @@ def start(store: Store, kind: str, items: list[dict], estimate: float, yes: bool
     book = store.book
     txn = txn_id or new_txn_id()
     for it in items:
-        it["staged"] = f"p{it['printed']:04d}.jpg"
+        it["staged"] = f"p{it['printed']:03d}.jpg"
         it["version"] = store.next_page_version(it["printed"])
         cur = store.image(it["printed"])
         it["previous_sha256"] = sha256_file(cur) if cur.exists() else None

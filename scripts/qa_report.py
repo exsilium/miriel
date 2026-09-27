@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pages import BOOKS, ROOT, Book  # noqa: E402
 from schema import PAGE_SCHEMA  # noqa: E402
 
-FILE_RE = re.compile(r"^p(\d{4})\.json$")
+FILE_RE = re.compile(r"^p(\d{3})\.json$")
 FIG_RE = re.compile(r"\[FIGURE (\d+)")
 
 
@@ -179,7 +179,7 @@ def build_report(book: Book, out_dir: Path, sample_n: int, seed: int) -> tuple[s
     L.append("Open the image next to the JSON and check: names spelled as printed, map labels vs legend, entity names verbatim in markdown, retake flag agrees with your eye.\n")
     L.append(md_table(["page", "type", "quality", "retake", "figs", "ents", "image", "json"], [
         [p, pages[p]["page_type"], pages[p]["quality"]["image_quality"], "yes" if pages[p]["quality"]["retake_recommended"] else "no",
-         len(pages[p]["figures"]), len(pages[p]["entities"]), str(book.image_path(p)), f"p{p:04d}.json"] for p in sample]))
+         len(pages[p]["figures"]), len(pages[p]["entities"]), str(book.image_path(p)), f"p{p:03d}.json"] for p in sample]))
     return "\n".join(L) + "\n", [o["page"] for o in retakes]
 
 

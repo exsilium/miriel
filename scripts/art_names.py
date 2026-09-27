@@ -40,7 +40,7 @@ class NameIndex:
     def __init__(self, out_root: Path = ROOT / "out"):
         counts: dict[str, Counter] = {}
         for key in BOOKS:
-            for f in sorted((out_root / key).glob("p[0-9][0-9][0-9][0-9].json")):
+            for f in sorted((out_root / key).glob("p[0-9][0-9][0-9].json")):
                 page = json.loads(f.read_text(encoding="utf-8"))
                 spellings = [e["name"] for e in page["entities"]] + ([page["region"]] if page.get("region") else [])
                 for name in spellings:

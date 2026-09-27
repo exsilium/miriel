@@ -28,7 +28,7 @@ miriel/
 ├── prompts/page-extraction-prompt.md
 ├── Elden Ring Vol 1 - The Lands Between.pdf         # OCR PDF
 ├── Elden Ring Vol 1 - The Lands Between/            # one image per page
-└── out/vol1/p0001.json ... pNNNN.json               # extraction output, one per printed page
+└── out/vol1/p001.json ... pNNN.json               # extraction output, one per printed page
 ```
 
 Each `out/**/*.json` follows the schema in the extraction prompt: `book`, `page`, `chapter`, `region`, `page_type`, `markdown`, `figures[]`, `entities[]`, `quality{}`.

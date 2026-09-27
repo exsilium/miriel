@@ -19,7 +19,7 @@ Read `docs/build-spec.md` (v1) and `docs/build-spec-v2.md` first; everything the
 
 ## 2. Hard constraints (in addition to v1 §2 and v2 §2)
 
-- **Per-page, not per-book.** A retake touches one page's image, one PDF page, one `out/<book>/pNNNN.json`, one page's rows. Full-book OCR (hours) is never on the retake path.
+- **Per-page, not per-book.** A retake touches one page's image, one PDF page, one `out/<book>/pNNN.json`, one page's rows. Full-book OCR (hours) is never on the retake path.
 - **Nothing is overwritten without a copy.** Every replaced image, PDF and page JSON is kept as a numbered version and a retake can be rolled back from the UI.
 - **The PDF keeps its outline, metadata and page count** after every splice; a retake cannot insert or delete pages.
 - **The api stays read-only on `data/` and `out/`.** Writes happen in a separate worker with a read-write mount; the api only records jobs and stores uploads in a staging volume.
@@ -51,7 +51,7 @@ Goal: `uv run python scripts/retake.py --book vol1 --page 289 --image ~/retakes/
    - write to a temp file, then verify before swapping in: page count unchanged, outline entry count unchanged and every entry resolving to the same page index as before, `check_offset.py --book <id> --pages <p> --images sample` passes for the page, and the new page's text layer is non-empty unless the photo has no text;
    - move the old PDF to `data/_versions/<pdf name>.v<k>.pdf` (keep the last 3 versions, older ones deleted with a log line), swap the new one in.
    - ⚠ PDF/A: a splice with pikepdf may drop PDF/A conformance. Check with `verapdf` or ocrmypdf's own validation once; if it breaks, document it and decide (see §8). The app does not need PDF/A; the Books app on a phone does not either.
-5. **Re-extract** the page: `extract.py --book <id> <p> --force`, after copying the current `out/<book>/pNNNN.json` to `out/<book>/_history/pNNNN.v<k>.json`. The OCR text now comes from the new PDF page.
+5. **Re-extract** the page: `extract.py --book <id> <p> --force`, after copying the current `out/<book>/pNNN.json` to `out/<book>/_history/pNNN.v<k>.json`. The OCR text now comes from the new PDF page.
 6. **Re-index** the page: `indexer ingest --book <id> --pages <p>` (hash-based; only this page changes).
 7. **Invalidate caches**: delete the page's thumbnail from `THUMB_CACHE_DIR`; bump the page's image version and the book's PDF revision (Phase C serves them in URLs).
 8. **Report**: before/after `image_quality`, `retake_recommended`, `ocr_agreement`, entity count and markdown length, cost. If the page is still flagged, it stays in the retake queue.
@@ -120,7 +120,7 @@ Goal: the whole flow in the browser, on desktop and on the phone the photos are 
 1. Retake one flagged page of each book from the UI: the new photo appears in the viewer, the thumbnail strip and the page image mode without a hard refresh, on desktop and on the phone.
 2. The spliced PDF opens in a desktop reader and the phone's Books app with the same title, author, page count and outline as before; outline entries still jump to the right pages.
 3. `check_offset.py --book <id> --images all` passes after the retake.
-4. The page's `out/<book>/pNNNN.json` is new, the old one is in `_history/`, `indexer ingest --all` reports every other page unchanged, and a question citing the page highlights text from the new text layer.
+4. The page's `out/<book>/pNNN.json` is new, the old one is in `_history/`, `indexer ingest --all` reports every other page unchanged, and a question citing the page highlights text from the new text layer.
 5. A batch of 10 pages completes with one PDF write and one extraction run; the reported cost matches `_runlog.jsonl`.
 6. Kill the worker mid-batch; restart it; the batch finishes without redoing completed pages and without a corrupt PDF.
 7. Roll back one retake: image, PDF page, JSON and index return to the previous version; no model call is made.

@@ -1,4 +1,4 @@
-"""Run the page-extraction prompt over pages of a book and write out/<book>/p{PAGE:04d}.json.
+"""Run the page-extraction prompt over pages of a book and write out/<book>/p{PAGE:03d}.json.
 
 Pages are always given as PRINTED page numbers (see scripts/pages.py for the mapping).
 
@@ -15,7 +15,7 @@ Examples:
 Resumable and idempotent: a page whose output file exists and validates is skipped unless --force is given.
 Kill the run at any time; output files are written atomically and the next run continues where it stopped.
 Every run appends to out/<book>/_runlog.jsonl (one record per attempt, tagged with run_id) and prints a
-cost summary. Pages that fail after all retries leave out/<book>/_failed/pNNNN.txt (error + raw model text).
+cost summary. Pages that fail after all retries leave out/<book>/_failed/pNNN.txt (error + raw model text).
 
 Credentials: ANTHROPIC_API_KEY in the environment, or in a `.env` file at the repo root
 (one `KEY=value` per line; .env is gitignored). Environment variables win over .env.
@@ -317,11 +317,11 @@ def validate(obj: dict, page: int, book: Book) -> list[str]:
 
 
 def out_path(out_dir: Path, page: int) -> Path:
-    return out_dir / f"p{page:04d}.json"
+    return out_dir / f"p{page:03d}.json"
 
 
 def failed_path(out_dir: Path, page: int) -> Path:
-    return out_dir / "_failed" / f"p{page:04d}.txt"
+    return out_dir / "_failed" / f"p{page:03d}.txt"
 
 
 def existing_output_valid(out_dir: Path, page: int, book: Book) -> bool | None:
@@ -422,7 +422,7 @@ def run_page(job: PageJob, ctx: RunContext) -> PageResult:
             append_runlog(ctx, {"page": job.page, "status": "rate_limited", "attempt": attempt, "wait": rate_limit_waits,
                                 "error": f"{type(e).__name__}: {e.status_code}", "delay": round(delay, 1)})
             if ctx.throttle.back_off(delay):
-                say(f"  {type(e).__name__} on p{job.page:04d}: all workers pausing {delay:.0f}s", err=True)
+                say(f"  {type(e).__name__} on p{job.page:03d}: all workers pausing {delay:.0f}s", err=True)
             if rate_limit_waits >= MAX_RATE_LIMIT_WAITS:
                 err = f"{type(e).__name__}: gave up after {rate_limit_waits} rate-limit waits"
                 write_failed(ctx, job.page, err, last_text)
@@ -440,7 +440,7 @@ def run_page(job: PageJob, ctx: RunContext) -> PageResult:
                 write_failed(ctx, job.page, f"{err} (after {attempts} attempts)", last_text)
                 return PageResult(job.page, "failed", time.time() - started, error=f"{err} (after {attempts} attempts)")
             delay = min(args.backoff * 2 ** (attempt - 1), 120) + random.uniform(0, 2)
-            say(f"  p{job.page:04d} attempt {attempt} failed ({err}); retrying in {delay:.0f}s", err=True)
+            say(f"  p{job.page:03d} attempt {attempt} failed ({err}); retrying in {delay:.0f}s", err=True)
             attempt += 1
             time.sleep(delay)
             continue
@@ -501,7 +501,7 @@ def dry_run(jobs: list[PageJob], source: Source, out_dir: Path, book: Book, show
 # ----------------------------------------------------------------------------- retake report
 
 def retake_report(out_dir: Path) -> int:
-    files = sorted(out_dir.glob("p[0-9][0-9][0-9][0-9].json"))
+    files = sorted(out_dir.glob("p[0-9][0-9][0-9].json"))
     if not files:
         print(f"no extracted pages in {out_dir}")
         return 0
@@ -697,14 +697,14 @@ def main() -> None:
             results.append(r)
             done = len(results)
             if r.status == "ok":
-                line = (f"[{done}/{total}] p{r.page:04d} ok {r.seconds:.0f}s {fmt_tokens(r.input_tokens)}/{fmt_tokens(r.output_tokens)} tok "
+                line = (f"[{done}/{total}] p{r.page:03d} ok {r.seconds:.0f}s {fmt_tokens(r.input_tokens)}/{fmt_tokens(r.output_tokens)} tok "
                         f"retake={'yes' if r.retake else 'no'}  {r.detail}")
                 if r.cost is not None:
                     line += f" ${r.cost:.3f}"
                 if r.warnings:
                     line += "\n     warnings: " + "; ".join(r.warnings)
             else:
-                line = f"[{done}/{total}] p{r.page:04d} {r.status.upper()} {r.seconds:.0f}s  {r.error}"
+                line = f"[{done}/{total}] p{r.page:03d} {r.status.upper()} {r.seconds:.0f}s  {r.error}"
             say(line)
     except KeyboardInterrupt:
         interrupted = True

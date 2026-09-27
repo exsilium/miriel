@@ -1,5 +1,5 @@
 /**
- * Ingest: out/<book>/pNNNN.json -> Postgres.
+ * Ingest: out/<book>/pNNN.json -> Postgres.
  *
  * Per page: validate (zod), chunk, embed, then replace all of that page's rows
  * in one transaction. Embedding requests are batched across pages up to the
@@ -25,7 +25,7 @@ export interface IngestOptions {
   bookId: string;
   book: BookConfig;
   outDir: string;
-  /** Only these printed pages (default: every pNNNN.json in outDir). */
+  /** Only these printed pages (default: every pNNN.json in outDir). */
   pages?: number[] | undefined;
   /** Validate and chunk only: no embedding, no database writes. */
   dryRun: boolean;
@@ -72,7 +72,7 @@ interface PreparedPage {
   sourceHash: string;
 }
 
-const FILE_RE = /^p(\d{4})\.json$/;
+const FILE_RE = /^p(\d{3})\.json$/;
 
 export function listPageFiles(outDir: string, pages?: number[]): string[] {
   const want = pages ? new Set(pages) : undefined;
@@ -88,7 +88,7 @@ export function listPageFiles(outDir: string, pages?: number[]): string[] {
 /** Parse and validate one page file. Returns the page (+ sha256 of the file) or a human-readable reason. */
 export function loadPageFile(file: string, book: BookConfig): { page: ExtractedPage; sourceHash: string } | { error: string } {
   const m = FILE_RE.exec(path.basename(file));
-  if (!m) return { error: "file name does not match pNNNN.json" };
+  if (!m) return { error: "file name does not match pNNN.json" };
   const fromName = Number(m[1]);
 
   let raw: unknown;
@@ -174,7 +174,7 @@ export async function ingest(o: IngestOptions): Promise<IngestSummary> {
     const chunks = chunkPage(loaded.page, chunkOpts);
     prepared.push({ file: name, page: loaded.page, chunks, sourceHash: loaded.sourceHash });
     o.log(
-      "p" + String(loaded.page.page).padStart(4, "0") + ": " + chunks.length + " chunks, " +
+      "p" + String(loaded.page.page).padStart(3, "0") + ": " + chunks.length + " chunks, " +
         loaded.page.figures.length + " figures, " + loaded.page.entities.length + " entities" +
         (o.dryRun ? " (dry run)" : ""),
     );

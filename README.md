@@ -18,7 +18,7 @@ There is also a quest checklist, u/Stellarwand's NPC-interaction lists for the b
 | `config/books.json` | the book list: file names, page offset, page count | yes | – |
 | `config/checklists.json`, `config/checklists/` | the quest checklists (Markdown lists with item ids) and name aliases | yes | – |
 | `data/` | per book: the OCR'd PDF and a folder with one photo per PDF page; `data/_versions/` and `<imageDir>/_versions/` hold retake history | no | the digitisation itself (photos, OCR); keep a backup |
-| `out/<book>/` | extraction output, one `pNNNN.json` per page, plus QA report and run log | no | **expensive**: about $60–105 and 1¼–2 h per book (model calls; Vol 1 $78, Vol 2 $104, Vol 3 $61) |
+| `out/<book>/` | extraction output, one `pNNN.json` per page, plus QA report and run log | no | **expensive**: about $60–105 and 1¼–2 h per book (model calls; Vol 1 $78, Vol 2 $104, Vol 3 $61) |
 | `out/checklists/` | checklist build, page links, overrides, QA report | no | seconds (`docs/checklist.md`), except hand-made `*_overrides.json` |
 | database (volume `dbdata`) | chunks, embeddings, entities: built from `out/`; also **user accounts, runs and checklist progress, which exist nowhere else** | no | books: minutes with `npm run index`, or restore a dump (below); accounts and progress: only from a dump |
 | `.env` | API keys and settings | no | copy it, or fill in from `.env.example` |

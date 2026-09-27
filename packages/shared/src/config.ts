@@ -9,7 +9,7 @@ import { z } from "zod";
 /** Dimension of the stored vectors. Must match the embedding model's output. */
 export const EMBEDDING_DIM = 1024;
 
-/** A strategy guide: OCR PDF + one photo per printed page, extracted to out/<id>/pNNNN.json. */
+/** A strategy guide: OCR PDF + one photo per printed page, extracted to out/<id>/pNNN.json. */
 export const BookConfigSchema = z.strictObject({
   kind: z.literal("guide").optional(),
   title: z.string().min(1),

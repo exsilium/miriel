@@ -147,8 +147,8 @@ length, and the cost.
 | --- | --- |
 | previous photos | `data/<imageDir>/_versions/<name>.v<k>.jpg`, log in `log.jsonl` next to them |
 | previous PDFs (last 3) | `data/_versions/<pdf name>.v<k>.pdf`, log in `data/_versions/log.jsonl` |
-| replaced PDF pages | `data/_versions/pages/<book>/pNNNN.v<k>.pdf` (what rollback splices back) |
-| previous extractions | `out/<book>/_history/pNNNN.v<k>.json` |
+| replaced PDF pages | `data/_versions/pages/<book>/pNNN.v<k>.pdf` (what rollback splices back) |
+| previous extractions | `out/<book>/_history/pNNN.v<k>.json` |
 | retake journals | `data/_versions/retakes/<book>/<id>.json` |
 
 `npm run retake -- --book vol1 --history [--page 289]` lists a book's retakes and rollbacks.

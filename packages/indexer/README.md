@@ -1,6 +1,6 @@
 # @miriel/indexer
 
-Reads `out/<book>/pNNNN.json` (one extracted page per file, schema in
+Reads `out/<book>/pNNN.json` (one extracted page per file, schema in
 `prompts/page-extraction-prompt.md`) and writes pages, chunks, figures,
 entities and entity links to Postgres.
 
@@ -15,7 +15,7 @@ node packages/indexer/dist/cli.js ingest --book vol1 [--out ./out/vol1] [--pages
 node packages/indexer/dist/cli.js ingest --all [--out ./out]   # every book in config/books.json from <out>/<id>/
 node packages/indexer/dist/cli.js reset  --book vol1
 node packages/indexer/dist/cli.js dump   --book vol1 --page 159      # chunks as stored
-node packages/indexer/dist/cli.js dump   --file out/vol1/p0159.json  # chunker output, no database
+node packages/indexer/dist/cli.js dump   --file out/vol1/p159.json  # chunker output, no database
 ```
 
 Environment: `DATABASE_URL`, `VOYAGE_API_KEY`, optional `EMBEDDINGS_PROVIDER`

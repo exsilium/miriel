@@ -1,5 +1,5 @@
 """Fallback for a page the API's output content filter blocks as a whole: transcribe it as several
-rectangular parts of the photo and merge the results into one out/<book>/pNNNN.json.
+rectangular parts of the photo and merge the results into one out/<book>/pNNN.json.
 
 The extraction prompt is unchanged; each request only adds a note that the image is one part of the page.
 A part the filter still blocks becomes a marked gap in the markdown instead of failing the page, and the
@@ -197,7 +197,7 @@ def main() -> None:
     else:
         cut = find_cut(im)
         parts = [Part("top", 0, 0, 1, cut), Part("bottom", 0, cut, 1, 1)]
-    print(f"p{page:04d}: {image_path.name} {im.size[0]}x{im.size[1]}; parts: "
+    print(f"p{page:03d}: {image_path.name} {im.size[0]}x{im.size[1]}; parts: "
           + "; ".join(f"{p.name}=({p.x0:.2f},{p.y0:.2f})-({p.x1:.2f},{p.y1:.2f})" for p in parts))
     dbg = out_dir / "_failed"
     if args.keep_parts:
@@ -213,7 +213,7 @@ def main() -> None:
         img = part.crop(im)
         ocr = ocr_for(pdf_page, part)
         if args.keep_parts:
-            (dbg / f"p{page:04d}.{part.name}.jpg").write_bytes(img)
+            (dbg / f"p{page:03d}.{part.name}.jpg").write_bytes(img)
         job = ex.PageJob(page=page, pdf_index=book.pdf_index(page), image_path=image_path, ocr_text=ocr, prompt=prompt)
         request = ex.build_request(job, img)
         note = (f"Note: this image is one part of printed page {page} (the '{part.name}' area); the page is being transcribed "
@@ -236,7 +236,7 @@ def main() -> None:
               f"type={obj['page_type']} figs={len(obj['figures'])} ents={len(obj['entities'])} md={len(obj['markdown'])} chars"
               + (f"\n     warnings: {'; '.join(warnings)}" if warnings else ""))
         if args.keep_parts:
-            (dbg / f"p{page:04d}.{part.name}.json").write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+            (dbg / f"p{page:03d}.{part.name}.json").write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
         results.append((part, obj))
 
     if all(o is None for _, o in results):

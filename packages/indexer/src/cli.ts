@@ -5,7 +5,7 @@
  * indexer ingest --all [--out ./out]           # every book in config/books.json, from <out>/<id>/
  * indexer reset  --book <id>                   # guides and art books
  * indexer dump   --book <id> --page 159        # chunks as stored in the database
- * indexer dump   --file out/<id>/p0159.json    # chunks the chunker would produce, no database
+ * indexer dump   --file out/<id>/p159.json    # chunks the chunker would produce, no database
  * indexer user   add <name> [--admin] | list | reset <name> | role <name> admin|user
  * indexer checklists [--checklist <id>] [--force] [--dry-run]   # out/checklists/ -> checklists, checklist_items
  */
@@ -42,7 +42,7 @@ const USAGE = `usage:
                          ("unchanged" in the summary); --force re-indexes them.
   indexer reset  --book <id>
   indexer dump   --book <id> --page <n>
-  indexer dump   --file <pNNNN.json>
+  indexer dump   --file <pNNN.json>
   indexer user   add <name> [--admin]    create an account; prints its one-time password
   indexer user   list
   indexer user   reset <name>            new one-time password, ends the user's sessions

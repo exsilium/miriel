@@ -70,8 +70,8 @@ Goal: `out/vol1/` holds 513 valid page files, with a QA report and a retake list
 1. **Runner hardening** in `scripts/extract.py` (keep the current CLI shape):
    - default behaviour skips pages whose output exists and validates (`--force` to redo); `--pages-from <file>` reads a page list (for retakes);
    - `--workers N` with a shared token bucket: on a 429 all workers back off, not just one;
-   - progress line per page (`[123/513] p0137 ok 48s 8.1k/5.7k tok retake=no`) and a final summary: pages ok / failed / skipped, tokens, estimated cost from a small model-price table, wall time;
-   - a failed page after all retries writes `out/<book>/_failed/pNNNN.txt` with the raw model text and error, and the run continues;
+   - progress line per page (`[123/513] p137 ok 48s 8.1k/5.7k tok retake=no`) and a final summary: pages ok / failed / skipped, tokens, estimated cost from a small model-price table, wall time;
+   - a failed page after all retries writes `out/<book>/_failed/pNNN.txt` with the raw model text and error, and the run continues;
    - `_runlog.jsonl` gains `run_id`, `prompt_sha256`, `effort`, `cost_usd`.
 2. **QA report** `scripts/qa_report.py --book vol1` writes `out/vol1/_qa.md`:
    - schema validity per file (reuse `schema.py`);
