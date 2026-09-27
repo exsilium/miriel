@@ -18,6 +18,16 @@ export interface ViewerTarget {
 /** "all": retrieval spans every indexed book (default). "book": only the book open in the viewer. */
 export type SearchScope = "all" | "book";
 
+/** A question asked from outside the chat (a checklist item's Ask): the chat sends it once. */
+export interface PendingAsk {
+  question: string;
+  /** Guide pages the question is about (POST /api/chat `focus`). */
+  focus: { book: string; page: number }[];
+  /** Search these books for this question (the checklist's books). */
+  bookIds?: string[] | undefined;
+  nonce: number;
+}
+
 interface AppState {
   books: Book[];
   /** The book open in the viewer. */
@@ -33,6 +43,8 @@ interface AppState {
   setViewerPage: (page: number) => void;
   /** Re-read the book list now (e.g. the PDF failed to load because a retake replaced it). */
   refreshBooks: () => Promise<void>;
+  pendingAsk: PendingAsk | null;
+  ask: (question: string, focus: PendingAsk["focus"], bookIds?: string[]) => void;
 }
 
 const Ctx = createContext<AppState | null>(null);
@@ -72,6 +84,10 @@ export function AppStateProvider({ books, refreshBooks, children }: { books: Boo
   const [viewerPage, setViewerPageState] = useState(initial.page);
   const [target, setTarget] = useState<ViewerTarget | null>({ book: initial.book.id, page: initial.page, quote: null, nonce: 0 });
   const [scope, setScope] = useState<SearchScope>("all");
+  const [pendingAsk, setPendingAsk] = useState<PendingAsk | null>(null);
+  const ask = useCallback((question: string, focus: PendingAsk["focus"], bookIds?: string[]) => {
+    setPendingAsk((p) => ({ question, focus, bookIds, nonce: (p?.nonce ?? 0) + 1 }));
+  }, []);
 
   const goTo = useCallback((book: string, page: number, quote: string | null = null, box: [number, number, number, number] | null = null) => {
     setBookId(book);
@@ -100,8 +116,8 @@ export function AppStateProvider({ books, refreshBooks, children }: { books: Boo
 
   const value = useMemo<AppState>(() => {
     const book = books.find((b) => b.id === bookId) ?? books[0]!;
-    return { books, book, target, goTo, selectBook, scope, setScope, viewerPage, setViewerPage, refreshBooks };
-  }, [books, bookId, target, goTo, selectBook, scope, viewerPage, setViewerPage, refreshBooks]);
+    return { books, book, target, goTo, selectBook, scope, setScope, viewerPage, setViewerPage, refreshBooks, pendingAsk, ask };
+  }, [books, bookId, target, goTo, selectBook, scope, viewerPage, setViewerPage, refreshBooks, pendingAsk, ask]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

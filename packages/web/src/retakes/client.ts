@@ -3,8 +3,20 @@
  * RETAKE_ENABLED=true; fetchRetakeConfig() returns null otherwise and the UI hides every retake control.
  * With RETAKE_TOKEN set on the server, writes send the token the operator entered (kept in localStorage).
  */
+import { noteUnauthorized } from "../api.js";
 
-export type JobStatus = "uploaded" | "validated" | "rejected" | "confirmed" | "running" | "done" | "failed" | "rolled_back" | "discarded";
+export type JobStatus =
+  | "uploaded"
+  | "validated"
+  | "submitted"
+  | "rejected"
+  | "declined"
+  | "confirmed"
+  | "running"
+  | "done"
+  | "failed"
+  | "rolled_back"
+  | "discarded";
 export type QueueStatus = "flagged" | "in_progress" | "done" | "still_flagged" | "accepted";
 
 export interface QualitySummary {
@@ -47,6 +59,13 @@ export interface Job {
   batchId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Who uploaded the photo (null: the retake token or before accounts). */
+  uploadedBy?: { id: string; username: string | null } | null;
+  submittedAt?: string | null;
+  /** The admin who confirmed or declined (null with the token). */
+  decidedBy?: { id: string; username: string | null } | null;
+  decidedAt?: string | null;
+  decisionNote?: string | null;
 }
 
 export interface JobEvent {
@@ -59,6 +78,12 @@ export interface JobEvent {
 export interface RetakeConfig {
   enabled: true;
   tokenRequired: boolean;
+  /** The api has user accounts: changes need a login (or the token). */
+  accounts?: boolean;
+  /** What this browser may do: upload and submit, or also approve (admin, or a valid token). */
+  viewer?: { canUpload: boolean; canApprove: boolean; userId: string | null };
+  /** Jobs users submitted that wait for an admin. */
+  awaitingApproval?: number;
   maxUploadBytes: number;
   counts: Record<QueueStatus, number>;
   /** Per book: pages replaced since the last full PDF rebuild; suggest = more than 20 % of the book. */
@@ -96,8 +121,12 @@ export interface PageHistory {
 }
 
 /** Jobs that are still being worked on, or wait for the operator. */
-export const OPEN_STATUSES: JobStatus[] = ["uploaded", "validated", "rejected", "confirmed", "running", "failed"];
-export const SETTLED_STATUSES: JobStatus[] = ["validated", "rejected", "done", "failed", "rolled_back", "discarded"];
+export const OPEN_STATUSES: JobStatus[] = ["uploaded", "validated", "submitted", "rejected", "declined", "confirmed", "running", "failed"];
+export const SETTLED_STATUSES: JobStatus[] = ["validated", "submitted", "rejected", "declined", "done", "failed", "rolled_back", "discarded"];
+
+/** Older api without accounts: everyone may do everything (the token guards). */
+export const canUpload = (c: RetakeConfig | null): boolean => c?.viewer?.canUpload ?? true;
+export const canApprove = (c: RetakeConfig | null): boolean => c?.viewer?.canApprove ?? true;
 
 const TOKEN_KEY = "miriel.retakeToken";
 
@@ -134,7 +163,9 @@ async function call<T>(url: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   const token = getToken() || memoryToken;
   if (token) headers.set("x-retake-token", token);
+  if (init.method && init.method !== "GET") headers.set("x-miriel", "1");
   const res = await fetch(url, { ...init, headers });
+  noteUnauthorized(res);
   if (!res.ok) {
     let msg = "Request failed (" + res.status + ")";
     try {
@@ -167,6 +198,8 @@ export const fetchHistory = (book: string, page: number): Promise<PageHistory> =
   call("/api/retakes/history?book=" + encodeURIComponent(book) + "&page=" + page);
 export const fetchJob = (id: string): Promise<Job & { events: JobEvent[] }> => call("/api/retakes/" + id);
 export const fetchBatch = (batch: string): Promise<Job[]> => call("/api/retakes?batch=" + encodeURIComponent(batch));
+/** Photos users submitted that wait for an admin, newest first. */
+export const fetchSubmitted = (): Promise<Job[]> => call("/api/retakes?status=submitted");
 
 export function uploadPhoto(book: string, file: File, opts: { page?: number | undefined; batch?: string | undefined } = {}): Promise<Job> {
   const params = new URLSearchParams({ book, filename: file.name });
@@ -177,6 +210,11 @@ export function uploadPhoto(book: string, file: File, opts: { page?: number | un
 }
 
 export const confirmJob = (id: string): Promise<Job> => call("/api/retakes/" + id + "/confirm", post);
+export const submitJob = (id: string): Promise<Job> => call("/api/retakes/" + id + "/submit", post);
+export const submitBatch = (batch: string): Promise<Job[]> => call("/api/retakes/batches/" + encodeURIComponent(batch) + "/submit", post);
+export const declineJob = (id: string, note: string): Promise<Job> => call("/api/retakes/" + id + "/decline", json({ note }));
+export const declineBatch = (batch: string, note: string): Promise<Job[]> =>
+  call("/api/retakes/batches/" + encodeURIComponent(batch) + "/decline", json({ note }));
 export const confirmBatch = (batch: string): Promise<Job[]> => call("/api/retakes/batches/" + encodeURIComponent(batch) + "/confirm", post);
 export const discardJob = (id: string): Promise<Job> => call("/api/retakes/" + id + "/discard", post);
 export const retryJob = (id: string): Promise<Job> => call("/api/retakes/" + id + "/retry", post);

@@ -90,6 +90,16 @@ the "Understood as" strip.
    inspectable.
 7. Return the top 12 `{book, page, chunk_idx, text, heading_path, score, why, ranks}`.
 
+**Focus pages** (`focusPages`, `focus` in POST /api/chat; docs/build-spec-checklist.md §3 decision 6). A checklist
+item's "Ask" sends the item's guide pages (found at build time) along with the question:
+- the first 6 chunks of each focus page join the fusion as a third ranked list (`why: focus`, in the pages' order);
+- the focus pages get the own-page boost.
+
+They are in the context even when no name in the question resolves. Harness: `npm run retrieve -- --focus
+vol1:314,vol1:365 "[Leyndell] Summon Melina to fight Morgott"` puts p. 365 (Melina, Event 3) first. On the sandbox
+(2026-09-27) all four sample items of the spec's §2.3 were answered from their focus pages: Boc p. 61/369, Melina
+and Morgott p. 359 + Vol 2 p. 223 (the Morgott boss page), Seedbed Curse #4 p. 295-297, Jolán vol3 p. 366/369.
+
 ## 3. Route questions (`index.ts`)
 
 A query is a route question if it matches

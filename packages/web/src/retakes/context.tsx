@@ -3,6 +3,7 @@
  * config === null: retakes are off and every retake control stays hidden.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useAuth } from "../auth/context.js";
 import { fetchRetakeConfig, type RetakeConfig } from "./client.js";
 
 interface RetakeState {
@@ -17,6 +18,8 @@ const COUNTS_POLL_MS = 60_000;
 
 export function RetakeProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<RetakeConfig | null>(null);
+  // what the viewer may do depends on who is logged in
+  const { user } = useAuth();
   const refresh = useCallback(() => {
     fetchRetakeConfig()
       .then(setConfig)
@@ -26,7 +29,7 @@ export function RetakeProvider({ children }: { children: ReactNode }) {
     refresh();
     const t = setInterval(refresh, COUNTS_POLL_MS);
     return () => clearInterval(t);
-  }, [refresh]);
+  }, [refresh, user?.id, user?.role]);
   const value = useMemo(() => ({ config, refresh }), [config, refresh]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

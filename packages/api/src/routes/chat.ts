@@ -26,6 +26,8 @@ export const ChatBody = z.object({
   bookIds: z.array(z.string().regex(/^[a-z0-9_-]+$/)).max(20).optional(),
   /** name_norm values resolved in the previous turn; derived from the previous user message when absent. */
   priorEntities: z.array(z.string().max(200)).max(50).optional(),
+  /** Guide pages the question is about (a checklist item's pages): searched first, see RetrieveOptions.focusPages. */
+  focus: z.array(z.object({ book: z.string().regex(/^[a-z0-9_-]+$/), page: z.int().min(0).max(99_999) })).max(6).optional(),
 });
 export type ChatBody = z.infer<typeof ChatBody>;
 
@@ -66,7 +68,7 @@ export function registerChatRoutes(app: FastifyInstance, deps: ServerDeps): void
     reply.hijack();
     const sse = openSse(reply.raw);
     try {
-      const retrieval = await deps.retrieve(last.content, { bookIds, priorEntities });
+      const retrieval = await deps.retrieve(last.content, { bookIds, priorEntities, ...(body.focus?.length ? { focusPages: body.focus } : {}) });
       const consulted = consultedPages(retrieval);
       const versions = await imageVersionsFor(deps.pool, consulted);
       const anchors: AnchorsEvent = {

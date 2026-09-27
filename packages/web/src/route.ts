@@ -1,5 +1,6 @@
 /**
- * Minimal client-side routing (no router dependency): the reader at "/", the retake views under "/retakes".
+ * Minimal client-side routing (no router dependency): the reader at "/", the retake views under "/retakes",
+ * user administration at "/admin/users", the quest checklist at "/checklist[?list=<id>]" (next to the viewer, like chat).
  * nginx and the Vite dev server fall back to index.html for unknown paths.
  */
 import { useSyncExternalStore } from "react";
@@ -8,10 +9,14 @@ export type Route =
   | { name: "reader" }
   | { name: "retakes" }
   | { name: "retake-batch"; book: string | null }
-  | { name: "retake-page"; book: string; page: number };
+  | { name: "retake-page"; book: string; page: number }
+  | { name: "admin-users" }
+  | { name: "checklist"; list: string | null };
 
 export function parseRoute(pathname: string, search: string): Route {
   const parts = pathname.replace(/\/+$/, "").split("/").filter(Boolean).map(decodeURIComponent);
+  if (parts[0] === "admin" && parts[1] === "users" && parts.length === 2) return { name: "admin-users" };
+  if (parts[0] === "checklist" && parts.length === 1) return { name: "checklist", list: new URLSearchParams(search).get("list") };
   if (parts[0] !== "retakes") return { name: "reader" };
   if (parts.length === 1) return { name: "retakes" };
   if (parts[1] === "batch") return { name: "retake-batch", book: new URLSearchParams(search).get("book") };

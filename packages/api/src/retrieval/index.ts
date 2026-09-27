@@ -8,7 +8,7 @@ import type { Pool } from "@miriel/shared/db";
 import { isRouteQuestion } from "./candidates.js";
 import { anchorBoost, pageKey, rrfFuse, selectWithinBudget, type RankedList } from "./fuse.js";
 import { resolveEntities } from "./resolve.js";
-import { chunkKey, fetchPages, lexicalSearch, vectorSearch, type ChunkHit } from "./search.js";
+import { chunkKey, fetchPages, lexicalSearch, pageChunks, vectorSearch, type ChunkHit } from "./search.js";
 import {
   RETRIEVE_DEFAULTS,
   type PageRef,
@@ -71,13 +71,16 @@ export async function retrieve(deps: RetrieverDeps, query: string, opts: Retriev
     timed("lexical", () => lexicalSearch(deps.pool, q, opts.lexicalK ?? d.lexicalK, bookIds)),
   ]);
   const vector = await timed("vector", () => vectorSearch(deps.pool, embedded.embeddings[0]!, opts.vectorK ?? d.vectorK, bookIds));
+  const focusPages = (opts.focusPages ?? []).filter((p) => !bookIds || bookIds.includes(p.book));
+  const focus = focusPages.length ? await timed("focus", () => pageChunks(deps.pool, focusPages)) : [];
 
   // 7.2.4-5 fuse and boost
   const lists: RankedList<ChunkHit>[] = [
     { why: "vector", items: vector.map((h) => ({ key: chunkKey(h), item: h })) },
     { why: "lexical", items: lexical.map((h) => ({ key: chunkKey(h), item: h })) },
   ];
-  let fused = anchorBoost(rrfFuse(lists, opts.rrfK ?? d.rrfK), anchors.pages, anchors.ownPages, {
+  if (focus.length) lists.push({ why: "focus", items: focus.map((h) => ({ key: chunkKey(h), item: h })) });
+  let fused = anchorBoost(rrfFuse(lists, opts.rrfK ?? d.rrfK), anchors.pages, [...anchors.ownPages, ...focusPages], {
     anchor: d.anchorBoost,
     own: d.ownPageBoost,
   });

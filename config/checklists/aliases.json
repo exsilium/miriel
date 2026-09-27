@@ -1,0 +1,7 @@
+{
+  "_comment": "Read by scripts/checklist_build.py. names: bold checklist name -> guide entity name, for names the matcher cannot resolve. chapters: guide entity name -> the title of its NPC chapter in the guides (the # heading), when the titles differ.",
+  "names": {},
+  "chapters": {
+    "Witch-Hunter Jerren": "Castellan Jerren"
+  }
+}

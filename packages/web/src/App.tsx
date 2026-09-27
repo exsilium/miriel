@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchBooks, fetchImageVersions, type Book } from "./api.js";
+import { AdminUsers } from "./auth/AdminUsers.js";
+import { ChecklistPane, pathKeepingBook } from "./checklist/ChecklistPane.js";
+import { useAuth } from "./auth/context.js";
+import { UserMenu } from "./auth/UserMenu.js";
 import { ChatPane } from "./chat/ChatPane.js";
 import { BatchUpload } from "./retakes/BatchUpload.js";
+import { canApprove } from "./retakes/client.js";
 import { openCount, RetakeProvider, useRetakes } from "./retakes/context.js";
 import { PageRetake } from "./retakes/PageRetake.js";
 import { RetakesView } from "./retakes/RetakesView.js";
@@ -16,6 +21,8 @@ const BOOKS_POLL_MS = 60_000;
 const sameBooks = (a: Book[] | null, b: Book[]): boolean => a !== null && JSON.stringify(a) === JSON.stringify(b);
 
 export function App() {
+  // a login or logout can change what the api lets this browser read (AUTH_REQUIRED): read the books again
+  const { user } = useAuth();
   const [books, setBooks] = useState<Book[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -25,7 +32,7 @@ export function App() {
     fetchBooks()
       .then(setBooks)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-  }, [attempt]);
+  }, [attempt, user?.id]);
 
   // A retake changes a book's pdfRevision: re-read the list now and then, keeping the old array when nothing changed.
   const refreshBooks = useCallback(async () => {
@@ -99,10 +106,18 @@ function Layout() {
   const { config } = useRetakes();
   const route = useRoute();
   const [pane, setPane] = useState<"chat" | "book">("chat");
-  const reader = route.name === "reader" || !config; // retake views exist only when the api has retakes on
+  const admin = route.name === "admin-users";
+  const checklist = route.name === "checklist";
+  const reader = !admin && (route.name === "reader" || checklist || !config); // retake views exist only when the api has retakes on
+  // the checklist stays mounted once opened, so going to the chat and back keeps its scroll and filters
+  const [checklistOpened, setChecklistOpened] = useState(checklist);
+  useEffect(() => {
+    if (checklist) setChecklistOpened(true);
+  }, [checklist]);
   const open = openCount(config);
+  const toApprove = canApprove(config) ? config?.awaitingApproval ?? 0 : 0;
   return (
-    <div className="app" data-pane={pane} data-view={reader ? "reader" : "retakes"}>
+    <div className="app" data-pane={pane} data-view={admin ? "admin" : reader ? "reader" : "retakes"} data-left={checklist ? "checklist" : "chat"}>
       <header className="topbar">
         <h1>
           <a
@@ -129,6 +144,20 @@ function Layout() {
           </span>
         )}
         <span className="spacer" />
+        {reader && (
+          <a
+            className={"retakes-link" + (checklist ? " active" : "")}
+            href="/checklist"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate(pathKeepingBook(checklist ? "/" : "/checklist"));
+              setPane("chat");
+            }}
+            title={checklist ? "Back to the chat" : "Quest checklist: NPC steps in play order"}
+          >
+            {checklist ? "Chat" : "Checklist"}
+          </a>
+        )}
         {config && (
           <a
             className={"retakes-link" + (reader ? "" : " active")}
@@ -137,24 +166,43 @@ function Layout() {
               e.preventDefault();
               navigate(reader ? "/retakes" : "/?book=" + encodeURIComponent(book.id));
             }}
-            title={reader ? open + " page(s) need a new photo" : "Back to the reader"}
+            title={reader ? open + " page(s) need a new photo" + (toApprove ? ", " + toApprove + " photo(s) wait for your approval" : "") : "Back to the reader"}
           >
             {reader ? "Retakes" : "Reader"}
             {reader && open > 0 && <span className="count">{open}</span>}
+            {reader && toApprove > 0 && <span className="count approve">✓ {toApprove}</span>}
           </a>
         )}
+        {admin && !config && (
+          <a
+            className="retakes-link active"
+            href="/"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate("/?book=" + encodeURIComponent(book.id));
+            }}
+          >
+            Reader
+          </a>
+        )}
+        <UserMenu />
         <div className="pane-toggle" role="tablist">
           <button role="tab" aria-pressed={pane === "chat"} onClick={() => setPane("chat")}>
-            Chat
+            {checklist ? "List" : "Chat"}
           </button>
           <button role="tab" aria-pressed={pane === "book"} onClick={() => setPane("book")}>
             Book
           </button>
         </div>
       </header>
-      {reader ? (
+      {admin ? (
+        <main className="retakes-main">
+          <AdminUsers />
+        </main>
+      ) : reader ? (
         <div className="panes">
           <ChatPane onShowBook={() => setPane("book")} />
+          {checklistOpened && <ChecklistPane onShowBook={() => setPane("book")} />}
           <PdfViewer />
         </div>
       ) : (

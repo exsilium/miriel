@@ -40,7 +40,7 @@ const EXAMPLES = [
 ];
 
 export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
-  const { book, books: allBooks, scope: chosenScope, setScope, goTo } = useAppState();
+  const { book, books: allBooks, scope: chosenScope, setScope, goTo, pendingAsk } = useAppState();
   // Answers come from the guides; with an art book open the scope is every guide and the toggle is hidden.
   const books = allBooks.filter((b) => !isArtBook(b));
   const scope = isArtBook(book) ? "all" : chosenScope;
@@ -63,7 +63,7 @@ export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
   }, []);
 
   const send = useCallback(
-    async (question: string, history: ChatMessage[]) => {
+    async (question: string, history: ChatMessage[], extra?: { focus: { book: string; page: number }[]; bookIds?: string[] | undefined }) => {
       const userId = nextId.current++;
       const assistantId = nextId.current++;
       const assistant: AssistantMsg = { id: assistantId, role: "assistant", segments: [], anchors: null, art: [], status: "streaming", error: null, stats: null, question };
@@ -86,8 +86,9 @@ export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
         // scope "all" omits bookIds: the API then retrieves across every indexed book
         const body = {
           messages: apiMessages,
-          ...(scope === "book" ? { bookIds: [book.id] } : {}),
+          ...(extra?.bookIds?.length ? { bookIds: extra.bookIds } : scope === "book" ? { bookIds: [book.id] } : {}),
           ...(priorEntities && priorEntities.length ? { priorEntities } : {}),
+          ...(extra?.focus.length ? { focus: extra.focus } : {}),
         };
         for await (const ev of streamChat(body, controller.signal)) {
           applyEvent(ev, assistantId, updateAssistant);
@@ -105,14 +106,28 @@ export function ChatPane({ onShowBook }: { onShowBook: () => void }) {
           updateAssistant(assistantId, (m) => ({ ...m, status: "error", error: "Lost the connection to the server: " + message }));
         }
       } finally {
-        abortRef.current = null;
-        setBusy(false);
+        // a newer question (a checklist Ask) may have replaced this one already
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+          setBusy(false);
+        }
       }
     },
     [book.id, scope, updateAssistant],
   );
 
   const onSend = useCallback((text: string) => void send(text, messages), [send, messages]);
+
+  // a checklist item's Ask: send it once (stop an answer that is still streaming first)
+  const handled = useRef(0);
+  useEffect(() => {
+    if (!pendingAsk || pendingAsk.nonce === handled.current) return;
+    handled.current = pendingAsk.nonce;
+    abortRef.current?.abort();
+    void send(pendingAsk.question, messages, { focus: pendingAsk.focus, bookIds: pendingAsk.bookIds });
+    // messages is read, not tracked: only a new ask triggers this
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAsk, send]);
   const onStop = useCallback(() => abortRef.current?.abort(), []);
   const onRetry = useCallback(
     (m: AssistantMsg) => {

@@ -133,4 +133,43 @@ Goal: the whole flow in the browser, on desktop and on the phone the photos are 
 - Inserting, deleting or reordering pages; a missing page is a new-book-version problem, not a retake.
 - Editing extraction output by hand (v2 §10 still applies).
 - Re-OCR of pages that were not re-shot (v2 §10); the "re-OCR candidates" in the QA report stay informational.
-- User accounts.
+- User accounts. (Since superseded: accounts came with docs/build-spec-checklist.md, see §11.)
+
+## 11. Addendum (2026-09-27): retakes by users, approved by an admin
+
+Source: docs/build-spec-checklist.md §3 decision 13 (Phase C there). With user accounts (that spec's Phase B), a
+user who is not an admin can upload retake photos. An admin approves the re-extraction, because that is the
+step that costs model credit and replaces the book PDF.
+
+- **States** (migration 0009): `validated -> submitted -> confirmed` for a user's photo, and
+  `submitted -> declined` when an admin says no (with an optional note shown to the uploader). An admin's own
+  photos, and anything done with RETAKE_TOKEN, go `validated -> confirmed` as before. The worker is unchanged:
+  it validates `uploaded` and runs `confirmed` jobs. Its "same page pending" checks count `submitted` too. A
+  declined job does not count for the page's queue status (the page stays where it was).
+- **Columns:** `uploaded_by`, `submitted_at`, `decided_by`, `decided_at`, `decision_note` (users FK, `ON DELETE
+  SET NULL`). Jobs in the api carry `uploadedBy` / `decidedBy` as `{id, username}`.
+- **Rights:**
+
+  | Action | user | admin or token |
+  |---|---|---|
+  | View queue, history, photos | yes | yes |
+  | Upload (single, batch), set a page by hand | yes (own jobs) | yes |
+  | Submit a validated job or batch (`/submit`) | own jobs | not needed |
+  | Withdraw / discard | own jobs, until confirmed | any job (as before) |
+  | Confirm = approve, decline (`/decline {note}`) | no | yes |
+  | Retry, roll back, mark accepted | no | yes |
+
+- **Guard:** with accounts every retake POST needs a logged-in user (with a real password) or the RETAKE_TOKEN,
+  which has admin rights and is meant for scripts. Without accounts (tests), only the token guards, as before.
+  Before this addendum, a stack without RETAKE_TOKEN let anyone who could reach it upload and confirm.
+- **Limits:** a user has at most 50 open photos (uploaded, validated or submitted); admins have no limit. The
+  daily budget (RETAKE_DAILY_BUDGET_USD) still applies after approval.
+- **UI:**
+  - A user sees "Submit for approval" where an admin sees "Accept and process", then "Waiting for an admin's
+    approval" with Withdraw, and after a decline the reason with Discard / another photo.
+  - Admins get "Waiting for approval (N)" at the top of the queue, one row per batch or single photo linking to
+    the batch or page view; a green ✓ N next to Retakes in the top bar; and Approve / Decline in the page and
+    batch views.
+  - Visitors who are not logged in see a "Log in" prompt instead of the upload controls. The token field only
+    shows on a stack without accounts.
+

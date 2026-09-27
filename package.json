@@ -38,7 +38,9 @@
     "reset": "docker compose down -v",
     "dev": "node scripts/dev.mjs",
     "logs": "docker compose logs -f api web",
-    "art": "node packages/api/dist/art-cli.js"
+    "art": "node packages/api/dist/art-cli.js",
+    "user": "docker compose --profile index run --rm indexer user",
+    "checklist-pages": "docker compose run --rm --no-deps -v ./out:/app/out api node packages/api/dist/checklist-pages-cli.js"
   },
   "devDependencies": {
     "@types/node": "^26.6.1",

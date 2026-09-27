@@ -1,6 +1,8 @@
 /** Small building blocks shared by the retake views. */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { getToken, setToken, watchJob, type Job, type JobEvent, type QualitySummary, type QueueStatus } from "./client.js";
+import { useAuth } from "../auth/context.js";
+import { canApprove, canUpload, getToken, setToken, watchJob, type Job, type JobEvent, type QualitySummary, type QueueStatus } from "./client.js";
+import { useRetakes } from "./context.js";
 
 export const QUEUE_LABEL: Record<QueueStatus, string> = {
   flagged: "Flagged",
@@ -57,6 +59,33 @@ export function BeforeAfter({ before, after }: { before: QualitySummary | null; 
 
 const yesNo = (v: boolean | undefined): string | undefined => (v === undefined ? undefined : v ? "yes" : "no");
 
+/**
+ * Who may change retakes, above each retake view: with accounts a "Log in" prompt for visitors and a note for users
+ * whose photos go to an admin; without accounts the token field (when the server sets RETAKE_TOKEN).
+ */
+export function AccessNote() {
+  const { config } = useRetakes();
+  const { user, showLogin } = useAuth();
+  if (!config) return null;
+  if (!config.accounts) return <TokenField required={config.tokenRequired} />;
+  if (!canUpload(config)) {
+    return (
+      <div className="card access-note">
+        <span>Log in to upload new photos. Anyone with an account can send photos; an admin approves the re-extraction.</span>
+        {!user && (
+          <button className="primary" onClick={showLogin}>
+            Log in
+          </button>
+        )}
+      </div>
+    );
+  }
+  if (!canApprove(config)) {
+    return <p className="muted access-note">Your photos are checked right away; an admin approves the re-extraction (it costs model credit).</p>;
+  }
+  return null;
+}
+
 /** Shown when the server requires RETAKE_TOKEN; the value stays in this browser. */
 export function TokenField({ required }: { required: boolean }) {
   const [value, setValue] = useState(getToken());
@@ -107,7 +136,8 @@ const ROLLBACK_STAGES: [string, string][] = [
 
 /**
  * Follow one job over SSE; job is null until the first snapshot arrives. The server ends the stream when the job
- * settles (validated, rejected, done, failed); bump restartKey after confirm or retry to follow it again.
+ * settles (validated, submitted, rejected, declined, done, failed); bump restartKey after confirm, submit or retry
+ * to follow it again.
  */
 export function useJobStream(jobId: string | null, onChange?: (job: Job) => void, restartKey = 0): { job: Job | null; events: JobEvent[] } {
   const [job, setJob] = useState<Job | null>(null);

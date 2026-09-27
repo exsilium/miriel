@@ -2,6 +2,7 @@
  * /retakes/<book>/<page>: one page's retake. Current photo and what the extraction flagged; upload a new photo
  * (file picker, or the camera on a phone); compare old and new with the folio check and the cost estimate;
  * accept or discard; follow the stages; see the before/after result; history of versions with rollback.
+ * A user who is not an admin submits the checked photo for approval; an admin approves or declines it.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { pageImageUrl } from "../api.js";
@@ -10,19 +11,23 @@ import { useAppState } from "../state.js";
 import { useImageVersions } from "../versions.js";
 import {
   acceptPage,
+  canApprove,
+  canUpload,
   confirmJob,
+  declineJob,
   discardJob,
   fetchHistory,
   OPEN_STATUSES,
   retryJob,
   rollbackPage,
+  submitJob,
   uploadPhoto,
   uploadUrl,
   type Job,
   type PageHistory,
 } from "./client.js";
 import { useRetakes } from "./context.js";
-import { BeforeAfter, JobProgress, Quality, TokenField, usd, useJobStream } from "./parts.js";
+import { AccessNote, BeforeAfter, JobProgress, Quality, usd, useJobStream } from "./parts.js";
 
 interface PageQuality {
   image_quality?: string;
@@ -108,7 +113,7 @@ export function PageRetake({ book: bookId, page }: { book: string; page: number 
       return;
     }
     void act(async () => {
-      if (active?.status === "rejected") await discardJob(active.id);
+      if (active?.status === "rejected" || active?.status === "declined") await discardJob(active.id);
       const j = await uploadPhoto(bookId, file, { page });
       setLastDone(null);
       setJobId(j.id);
@@ -118,7 +123,28 @@ export function PageRetake({ book: bookId, page }: { book: string; page: number 
 
   const accepted = useMemo(() => history?.jobs.find((j) => j.kind === "accept")?.status === "done", [history]);
   const active = job && OPEN_STATUSES.includes(job.status) ? job : null;
-  const canUpload = !active || active.status === "rejected";
+  const mayWrite = canUpload(config);
+  const approver = canApprove(config);
+  const mine = Boolean(active?.uploadedBy?.id) && active?.uploadedBy?.id === config?.viewer?.userId;
+  const showUpload = mayWrite && (!active || active.status === "rejected" || active.status === "declined");
+
+  // a submitted photo waits for an admin elsewhere: look again now and then
+  const waiting = active?.status === "submitted";
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(() => setStreamKey((k) => k + 1), 15_000);
+    return () => clearInterval(t);
+  }, [waiting]);
+
+  const decline = (id: string) => {
+    const note = window.prompt("Why is the photo declined? (optional, shown to the uploader)", "");
+    if (note === null) return;
+    void act(async () => {
+      await declineJob(id, note);
+      setStreamKey((k) => k + 1);
+      refreshCounts();
+    });
+  };
 
   if (!book) return <div className="retakes muted">Unknown book {bookId}.</div>;
   const maxPrinted = book.pageCount - book.printedToPdfOffset;
@@ -146,7 +172,7 @@ export function PageRetake({ book: bookId, page }: { book: string; page: number 
           Open in viewer
         </button>
       </div>
-      <TokenField required={Boolean(config?.tokenRequired)} />
+      <AccessNote />
       {error && <div className="error-box">{error}</div>}
 
       <div className="retake-grid">
@@ -155,7 +181,7 @@ export function PageRetake({ book: bookId, page }: { book: string; page: number 
           <img src={pageImageUrl(bookId, page)} alt={"Current photo of page " + page} />
         </figure>
 
-        {active && active.kind === "retake" && active.uploadName && (active.status === "uploaded" || active.status === "validated" || active.status === "rejected") && (
+        {active && active.kind === "retake" && active.uploadName && ["uploaded", "validated", "submitted", "rejected", "declined"].includes(active.status) && (
           <figure className="photo">
             <figcaption>New photo · {active.uploadName}</figcaption>
             <img src={uploadUrl(active.id)} alt="Uploaded photo" />
@@ -174,7 +200,7 @@ export function PageRetake({ book: bookId, page }: { book: string; page: number 
                 {quality.quality_issues && quality.quality_issues.length > 0 && <p className="muted">Issues: {quality.quality_issues.join(", ").replaceAll("_", " ")}</p>}
                 {quality.retake_reason && <p>{quality.retake_reason}</p>}
                 {quality.affected_areas && <p className="muted">Affected areas: {quality.affected_areas}</p>}
-                {(quality.retake_recommended || accepted) && !active && (
+                {(quality.retake_recommended || accepted) && !active && approver && (
                   <button disabled={busy} onClick={() => void act(async () => { await acceptPage(bookId, page, !accepted); await loadHistory(); refreshCounts(); })}>
                     {accepted ? "Undo accept" : "Mark accepted (no retake needed)"}
                   </button>
@@ -206,8 +232,15 @@ export function PageRetake({ book: bookId, page }: { book: string; page: number 
           {active && (
             <section className="card">
               {active.kind === "rollback" ? <h3>Rollback</h3> : <h3>New photo</h3>}
+              {active.uploadedBy?.username && (
+                <p className="muted">
+                  Uploaded by {active.uploadedBy.username}
+                  {mine ? " (you)" : ""}
+                  {active.submittedAt ? " · submitted " + new Date(active.submittedAt).toLocaleString() : ""}
+                </p>
+              )}
               {active.status === "uploaded" && <p className="muted">Checking the photo (folio, aspect)…</p>}
-              {(active.status === "validated" || active.status === "rejected") && active.folioCheck && (
+              {["validated", "submitted", "rejected", "declined"].includes(active.status) && active.folioCheck && (
                 <>
                   <p>
                     Folio:{" "}
@@ -239,17 +272,73 @@ export function PageRetake({ book: bookId, page }: { book: string; page: number 
                   <p>
                     Re-extraction estimate: <strong>{usd(active.estimateUsd)}</strong>
                   </p>
-                  <div className="actions">
-                    <button className="primary" disabled={busy} onClick={() => void act(async () => { await confirmJob(active.id); setStreamKey((k) => k + 1); })}>
-                      Accept and process
-                    </button>
-                    <button disabled={busy} onClick={() => void act(async () => { await discardJob(active.id); setJobId(null); refreshCounts(); })}>
-                      Discard
-                    </button>
-                  </div>
+                  {approver ? (
+                    <div className="actions">
+                      <button className="primary" disabled={busy} onClick={() => void act(async () => { await confirmJob(active.id); setStreamKey((k) => k + 1); })}>
+                        Accept and process
+                      </button>
+                      <button disabled={busy} onClick={() => void act(async () => { await discardJob(active.id); setJobId(null); refreshCounts(); })}>
+                        Discard
+                      </button>
+                    </div>
+                  ) : mine ? (
+                    <div className="actions">
+                      <button className="primary" disabled={busy} onClick={() => void act(async () => { await submitJob(active.id); setStreamKey((k) => k + 1); refreshCounts(); })}>
+                        Submit for approval
+                      </button>
+                      <button disabled={busy} onClick={() => void act(async () => { await discardJob(active.id); setJobId(null); refreshCounts(); })}>
+                        Discard
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="muted">Waiting for {active.uploadedBy?.username ?? "the uploader"} to submit it.</p>
+                  )}
                 </>
               )}
-              {active.status === "rejected" && (
+              {active.status === "submitted" && (
+                <>
+                  <p>
+                    Re-extraction estimate: <strong>{usd(active.estimateUsd)}</strong>
+                  </p>
+                  {approver ? (
+                    <div className="actions">
+                      <button className="primary" disabled={busy} onClick={() => void act(async () => { await confirmJob(active.id); setStreamKey((k) => k + 1); refreshCounts(); })}>
+                        Approve and process
+                      </button>
+                      <button disabled={busy} onClick={() => decline(active.id)}>
+                        Decline
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="warn-text">Waiting for an admin's approval.</p>
+                      {mine && (
+                        <div className="actions">
+                          <button disabled={busy} onClick={() => void act(async () => { await discardJob(active.id); setJobId(null); refreshCounts(); })}>
+                            Withdraw
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+              {active.status === "declined" && (
+                <>
+                  <p className="error-text">
+                    ✕ Declined{active.decidedBy?.username ? " by " + active.decidedBy.username : ""}
+                    {active.decisionNote ? ": " + active.decisionNote : ""}
+                  </p>
+                  {(mine || approver) && (
+                    <div className="actions">
+                      <button disabled={busy} onClick={() => void act(async () => { await discardJob(active.id); setJobId(null); refreshCounts(); })}>
+                        Discard
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+              {active.status === "rejected" && (mine || approver) && (
                 <div className="actions">
                   <button disabled={busy} onClick={() => void act(async () => { await discardJob(active.id); setJobId(null); refreshCounts(); })}>
                     Discard
@@ -257,7 +346,7 @@ export function PageRetake({ book: bookId, page }: { book: string; page: number 
                 </div>
               )}
               {(active.status === "confirmed" || active.status === "running" || active.status === "failed") && <JobProgress job={job} events={events} />}
-              {active.status === "failed" && (
+              {active.status === "failed" && approver && (
                 <>
                   <p className="error-text">✕ {active.error}</p>
                   <div className="actions">
@@ -276,10 +365,13 @@ export function PageRetake({ book: bookId, page }: { book: string; page: number 
             </section>
           )}
 
-          {canUpload && (
+          {showUpload && (
             <section className="card">
-              <h3>{active?.status === "rejected" ? "Try another photo" : "Upload a new photo"}</h3>
-              <p className="muted">JPEG or PNG from vFlat. The photo is checked before anything is changed; re-extraction starts only after you accept.</p>
+              <h3>{active?.status === "rejected" || active?.status === "declined" ? "Try another photo" : "Upload a new photo"}</h3>
+              <p className="muted">
+                JPEG or PNG from vFlat. The photo is checked before anything is changed; re-extraction starts only after{" "}
+                {approver ? "you accept" : "an admin approves it"}.
+              </p>
               <div className="actions">
                 <label className="button primary">
                   Choose photo
@@ -312,7 +404,7 @@ export function PageRetake({ book: bookId, page }: { book: string; page: number 
                 ))}
               </ul>
             )}
-            {history?.canRollBack && !active && (
+            {history?.canRollBack && !active && approver && (
               <button
                 disabled={busy}
                 onClick={() => {

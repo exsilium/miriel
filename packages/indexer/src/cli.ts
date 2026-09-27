@@ -6,6 +6,8 @@
  * indexer reset  --book <id>                   # guides and art books
  * indexer dump   --book <id> --page 159        # chunks as stored in the database
  * indexer dump   --file out/<id>/p0159.json    # chunks the chunker would produce, no database
+ * indexer user   add <name> [--admin] | list | reset <name> | role <name> admin|user
+ * indexer checklists [--checklist <id>] [--force] [--dry-run]   # out/checklists/ -> checklists, checklist_items
  */
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -16,6 +18,7 @@ import {
   findRepoRoot,
   guideBooks,
   loadBooksConfig,
+  loadChecklistsConfig,
   loadDotEnv,
   EMBEDDING_DIM,
   describeError,
@@ -23,8 +26,10 @@ import {
 } from "@miriel/shared";
 import { chunkPage, type Chunk } from "./chunker.js";
 import { createPool } from "@miriel/shared/db";
+import { AccountError, addUser, changeUser, normalizeUsername, pgAuthStore, resetUserPassword } from "@miriel/shared/users";
 import { formatSummary, ingest, loadPageFile, resetBook, upsertBook } from "./ingest.js";
 import { formatArtSummary, ingestArtBook, upsertArtBook } from "./art-ingest.js";
+import { formatChecklistSummary, ingestChecklist } from "./checklist-ingest.js";
 import { migrate } from "./migrate.js";
 
 const USAGE = `usage:
@@ -38,6 +43,13 @@ const USAGE = `usage:
   indexer reset  --book <id>
   indexer dump   --book <id> --page <n>
   indexer dump   --file <pNNNN.json>
+  indexer user   add <name> [--admin]    create an account; prints its one-time password
+  indexer user   list
+  indexer user   reset <name>            new one-time password, ends the user's sessions
+  indexer user   role <name> admin|user
+  indexer checklists [--checklist <id>] [--force] [--dry-run]
+                         quest checklists from <repo>/out/checklists/ (config/checklists.json); also run by
+                         ingest --all. Unchanged lists are skipped; items gone from a list are retired.
 
 options:
   --database-url <url>   overrides DATABASE_URL
@@ -62,6 +74,8 @@ async function main(argv: string[]): Promise<number> {
       "dry-run": { type: "boolean", default: false },
       force: { type: "boolean", default: false },
       provider: { type: "string" },
+      admin: { type: "boolean", default: false },
+      checklist: { type: "string", multiple: true },
       "database-url": { type: "string" },
       env: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
@@ -127,13 +141,49 @@ async function main(argv: string[]): Promise<number> {
         process.stdout.write(formatArtSummary(summary) + "\n");
         invalid += summary.skipped.length;
       }
+      invalid += await ingestChecklists(pool, path.join(outRoot, "checklists"), undefined, dryRun);
     } finally {
       await pool.end();
     }
     return invalid > 0 ? 1 : 0;
   };
 
+  /** Every configured checklist (or `only`) from <dir>; returns the number that failed. */
+  const ingestChecklists = async (pool: ReturnType<typeof createPool>, dir: string, only: string[] | undefined, dryRun: boolean): Promise<number> => {
+    const lists = loadChecklistsConfig(path.join(root, "config", "checklists.json"));
+    const ids = only ?? Object.keys(lists);
+    let failed = 0;
+    for (const id of ids) {
+      const cfg = lists[id];
+      if (!cfg) throw new Error("unknown checklist " + id + "; configured: " + Object.keys(lists).join(", "));
+      const bad = cfg.books.filter((b) => !books[b]);
+      if (bad.length) throw new Error("checklist " + id + ": " + bad.join(", ") + " are not guide books in config/books.json");
+      if (!existsSync(path.join(dir, id + ".json"))) {
+        log("warning: no build for checklist " + id + " in " + dir + " (scripts/checklist_build.py); skipped");
+        continue;
+      }
+      try {
+        const s = await ingestChecklist({ id, config: cfg, dir, pool, dryRun, force: values.force, sort: Object.keys(lists).indexOf(id), log });
+        process.stdout.write(formatChecklistSummary(s) + "\n");
+      } catch (err) {
+        log("checklist " + id + ": " + describeError(err));
+        failed += 1;
+      }
+    }
+    return failed;
+  };
+
   switch (command) {
+    case "checklists": {
+      const pool = createPool(values["database-url"]);
+      try {
+        const dir = values.out ? path.resolve(values.out) : path.join(root, "out", "checklists");
+        return (await ingestChecklists(pool, dir, values.checklist, values["dry-run"])) > 0 ? 1 : 0;
+      } finally {
+        await pool.end();
+      }
+    }
+
     case "migrate": {
       const pool = createPool(values["database-url"]);
       try {
@@ -232,9 +282,64 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
 
+    case "user":
+      return userCommand(positionals.slice(1), values.admin, values["database-url"]);
+
     default:
       log("unknown command: " + command + "\n\n" + USAGE);
       return 2;
+  }
+}
+
+/** Accounts (docs/build-spec-checklist.md §3 decision 9): the first admin, and recovery when nobody can log in. */
+async function userCommand(args: string[], admin: boolean, databaseUrl: string | undefined): Promise<number> {
+  const [sub, name, role] = args;
+  const pool = createPool(databaseUrl);
+  const store = pgAuthStore(pool);
+  const byName = async (n: string | undefined) => {
+    if (!n) throw new Error("a username is required");
+    const u = (await store.listUsers()).find((x) => x.username === normalizeUsername(n));
+    if (!u) throw new Error("no user " + n);
+    return u;
+  };
+  try {
+    switch (sub) {
+      case "add": {
+        if (!name) throw new Error("usage: indexer user add <name> [--admin]");
+        const { user, password } = await addUser(store, { username: name, role: admin ? "admin" : "user" });
+        process.stdout.write("created " + user.role + " " + user.username + "\none-time password: " + password + "\n(the user sets a new one at first login)\n");
+        return 0;
+      }
+      case "list": {
+        for (const u of await store.listUsers()) {
+          const cols = [u.username.padEnd(20), u.role.padEnd(5), u.disabled ? "disabled" : "active  ", u.mustChangePassword ? "temp-password" : "             "];
+          process.stdout.write(cols.join("  ") + "  last login " + (u.lastLoginAt ?? "never") + "\n");
+        }
+        return 0;
+      }
+      case "reset": {
+        const { user, password } = await resetUserPassword(store, (await byName(name)).id);
+        process.stdout.write("reset " + user.username + "\none-time password: " + password + "\n");
+        return 0;
+      }
+      case "role": {
+        if (role !== "admin" && role !== "user") throw new Error("usage: indexer user role <name> admin|user");
+        const user = await changeUser(store, (await byName(name)).id, { role });
+        process.stdout.write(user.username + " is now " + user.role + "\n");
+        return 0;
+      }
+      default:
+        log("usage: indexer user add <name> [--admin] | list | reset <name> | role <name> admin|user");
+        return 2;
+    }
+  } catch (err) {
+    if (err instanceof AccountError) {
+      log(err.message);
+      return 1;
+    }
+    throw err;
+  } finally {
+    await pool.end();
   }
 }
 

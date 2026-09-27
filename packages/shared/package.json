@@ -11,6 +11,10 @@
     "./db": {
       "types": "./dist/db.d.ts",
       "default": "./dist/db.js"
+    },
+    "./users": {
+      "types": "./dist/users.d.ts",
+      "default": "./dist/users.js"
     }
   },
   "files": ["dist"],

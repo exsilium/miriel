@@ -73,6 +73,20 @@ export interface PageRow {
   markdown: string;
 }
 
+/** Chunks of the given pages, in the pages' order then chunk order (at most `perPage` from each page). */
+export async function pageChunks(pool: Pool, pages: { book: string; page: number }[], perPage = 6): Promise<ChunkHit[]> {
+  if (pages.length === 0) return [];
+  const { rows } = await pool.query<ChunkRow & { ord: number }>(
+    `SELECT c.book_id, c.page, c.chunk_idx, c.text, c.heading_path, 1::float8 AS score, want.ord
+     FROM chunks c
+     JOIN unnest($1::text[], $2::int[]) WITH ORDINALITY AS want(book_id, page, ord) ON want.book_id = c.book_id AND want.page = c.page
+     WHERE c.chunk_idx < $3
+     ORDER BY want.ord, c.chunk_idx`,
+    [pages.map((p) => p.book), pages.map((p) => p.page), perPage],
+  );
+  return rows.map(toHit);
+}
+
 export async function fetchPages(pool: Pool, pages: { book: string; page: number }[]): Promise<PageRow[]> {
   if (pages.length === 0) return [];
   const { rows } = await pool.query<PageRow>(

@@ -34,7 +34,8 @@ export interface Anchors {
   spanPages?: PageRef[];
 }
 
-export type Why = "vector" | "lexical" | "anchor" | "rerank";
+/** focus: a chunk of a page the caller named (a checklist item's guide pages). */
+export type Why = "vector" | "lexical" | "anchor" | "rerank" | "focus";
 
 export interface RetrievedChunk {
   book: string;
@@ -45,7 +46,7 @@ export interface RetrievedChunk {
   score: number;
   why: Why[];
   /** 1-based ranks in the individual retrievers, when present. */
-  ranks: { vector?: number; lexical?: number; rerank?: number };
+  ranks: { vector?: number; lexical?: number; rerank?: number; focus?: number };
   context_kind: "chunk";
 }
 
@@ -87,6 +88,12 @@ export interface RetrieveOptions {
   routeSpanMax?: number | undefined;
   /** name_norm values resolved in the previous turn ("how do I get there?"). */
   priorEntities?: string[] | undefined;
+  /**
+   * Pages the question is about (a checklist item's guide pages, docs/build-spec-checklist.md §3 decision 6): their
+   * chunks join the search as a ranked list of their own and get the own-page boost, so they are in the answer's
+   * context even when no name in the question matches them.
+   */
+  focusPages?: PageRef[] | undefined;
   /** Run the rerank stage (default: RERANK_ENABLED env). */
   rerank?: boolean | undefined;
   topK?: number | undefined;

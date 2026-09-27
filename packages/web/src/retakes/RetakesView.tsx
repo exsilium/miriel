@@ -1,15 +1,16 @@
 /**
  * /retakes: the retake queue. Pages flagged retake_recommended plus every page with retake activity, per book,
- * with filters (book, issue, status), page order and optional grouping by quality issue.
+ * with filters (book, issue, status), page order and optional grouping by quality issue. Admins see the photos
+ * users submitted for approval at the top.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { pageThumbUrl } from "../api.js";
 import { navigate, retakePagePath } from "../route.js";
 import { useAppState } from "../state.js";
 import { rememberVersions, useImageVersions } from "../versions.js";
-import { acceptPage, fetchQueue, type QueueItem, type QueueStatus } from "./client.js";
+import { acceptPage, canApprove, canUpload, fetchQueue, fetchSubmitted, type Job, type QueueItem, type QueueStatus } from "./client.js";
 import { useRetakes } from "./context.js";
-import { QUEUE_LABEL, StatusBadge, TokenField } from "./parts.js";
+import { AccessNote, QUEUE_LABEL, StatusBadge, usd } from "./parts.js";
 
 type StatusFilter = "open" | "all" | QueueStatus;
 const STATUS_FILTERS: [StatusFilter, string][] = [
@@ -21,6 +22,55 @@ const STATUS_FILTERS: [StatusFilter, string][] = [
   ["done", QUEUE_LABEL.done],
   ["accepted", QUEUE_LABEL.accepted],
 ];
+
+/** Submitted photos, one row per batch (a batch is approved together) or per single photo. */
+function Approvals({ labelOf }: { labelOf: (id: string) => string }) {
+  const { config } = useRetakes();
+  const [jobs, setJobs] = useState<Job[] | null>(null);
+  const waiting = config?.awaitingApproval ?? 0;
+  useEffect(() => {
+    if (!waiting) {
+      setJobs([]);
+      return;
+    }
+    fetchSubmitted()
+      .then(setJobs)
+      .catch(() => setJobs(null));
+  }, [waiting]);
+  if (!jobs?.length) return null;
+  const groups = new Map<string, Job[]>();
+  for (const j of jobs) groups.set(j.batchId ?? j.id, [...(groups.get(j.batchId ?? j.id) ?? []), j]);
+  return (
+    <section className="card approvals">
+      <h3>Waiting for approval ({jobs.length})</h3>
+      <ul>
+        {[...groups.values()].map((g) => {
+          const j = g[0]!;
+          const pages = g.map((x) => x.page).filter((p): p is number => p !== null).sort((a, b) => a - b);
+          const to = g.length > 1 && j.batchId ? "/retakes/batch?book=" + encodeURIComponent(j.book) + "&batch=" + encodeURIComponent(j.batchId) : retakePagePath(j.book, j.page ?? 0);
+          return (
+            <li key={j.batchId ?? j.id}>
+              <a
+                href={to}
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate(to);
+                }}
+              >
+                {labelOf(j.book)} · {pages.length > 1 ? pages.length + " pages (" + pages.slice(0, 6).join(", ") + (pages.length > 6 ? ", …" : "") + ")" : "p. " + (pages[0] ?? "?")}
+              </a>
+              <span className="muted">
+                {" "}
+                · by {j.uploadedBy?.username ?? "?"} · ~{usd(g.reduce((s, x) => s + (x.estimateUsd ?? 0), 0))}
+                {j.submittedAt ? " · " + new Date(j.submittedAt).toLocaleString() : ""}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
 
 export function RetakesView() {
   const { books } = useAppState();
@@ -102,11 +152,14 @@ export function RetakesView() {
         <button onClick={downloadList} disabled={!items}>
           Download list
         </button>
-        <button className="primary" onClick={() => navigate("/retakes/batch" + (book !== "all" ? "?book=" + encodeURIComponent(book) : ""))}>
-          Batch upload
-        </button>
+        {canUpload(config) && (
+          <button className="primary" onClick={() => navigate("/retakes/batch" + (book !== "all" ? "?book=" + encodeURIComponent(book) : ""))}>
+            Batch upload
+          </button>
+        )}
       </div>
-      <TokenField required={Boolean(config?.tokenRequired)} />
+      <AccessNote />
+      {canApprove(config) && <Approvals labelOf={labelOf} />}
       {config?.rebuild
         .filter((r) => r.suggest)
         .map((r) => (
@@ -188,7 +241,7 @@ export function RetakesView() {
                 </div>
                 <div className="queue-actions">
                   <button onClick={() => navigate(retakePagePath(i.book, i.page))}>Retake</button>
-                  {i.status === "accepted" ? (
+                  {!canApprove(config) ? null : i.status === "accepted" ? (
                     <button disabled={busy === i.book + ":" + i.page} onClick={() => void toggleAccept(i, false)}>
                       Undo accept
                     </button>

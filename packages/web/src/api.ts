@@ -132,6 +132,8 @@ export interface ChatRequest {
   messages: { role: "user" | "assistant"; content: string }[];
   bookIds?: string[];
   priorEntities?: string[];
+  /** Guide pages the question is about (a checklist item's pages). */
+  focus?: { book: string; page: number }[];
 }
 
 const withVersion = (url: string, v: string | null | undefined): string => (v ? url + "?v=" + encodeURIComponent(v) : url);
@@ -148,13 +150,23 @@ export const pageImageUrl = (book: string, page: number): string =>
 export const pageThumbUrl = (book: string, page: number): string =>
   withVersion("/api/books/" + encodeURIComponent(book) + "/pages/" + page + "/thumb", imageVersionOf(book, page));
 
+/** Fired on any 401 from the api, so the auth context re-reads the session (it may have ended). */
+export const UNAUTHORIZED_EVENT = "miriel:unauthorized";
+/** Sent on every request that changes data; the api refuses cookie-authenticated writes without it. */
+export const WRITE_HEADER = { "x-miriel": "1" } as const;
+
+export function noteUnauthorized(res: Response): void {
+  if (res.status === 401 && typeof window !== "undefined") window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+}
+
 async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, { signal: signal ?? null });
+  noteUnauthorized(res);
   if (!res.ok) throw new Error(await problemMessage(res));
   return (await res.json()) as T;
 }
 
-async function problemMessage(res: Response): Promise<string> {
+export async function problemMessage(res: Response): Promise<string> {
   try {
     const p = (await res.json()) as { title?: string; detail?: string };
     return (p.title ?? "Request failed") + (p.detail ? ": " + p.detail : "") + " (" + res.status + ")";
@@ -185,10 +197,11 @@ export function fetchEntities(q: string, book: string | undefined, signal: Abort
 export async function* streamChat(body: ChatRequest, signal: AbortSignal): AsyncGenerator<ChatEvent> {
   const res = await fetch("/api/chat", {
     method: "POST",
-    headers: { "content-type": "application/json", accept: "text/event-stream" },
+    headers: { "content-type": "application/json", accept: "text/event-stream", ...WRITE_HEADER },
     body: JSON.stringify(body),
     signal,
   });
+  noteUnauthorized(res);
   if (!res.ok) throw new Error(await problemMessage(res));
   if (!res.body) throw new Error("The server returned no stream.");
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Retrieval harness:  npm run retrieve -- "how do I get the Meteorite Staff from Lenne's Rise"
- * Options: --book vol1  --rerank  --json  --k 12  --prior "meteorite staff,lennes rise"  --full
+ * Options: --book vol1  --rerank  --json  --k 12  --prior "meteorite staff,lennes rise"  --full  --focus vol1:369,vol1:370
  */
 import { parseArgs } from "node:util";
 import { createEmbeddingProvider, createRerankProvider, envFlag, loadDotEnv } from "@miriel/shared";
@@ -17,13 +17,14 @@ const { values, positionals } = parseArgs({
     full: { type: "boolean", default: false },
     k: { type: "string" },
     prior: { type: "string" },
+    focus: { type: "string" },
     help: { type: "boolean", short: "h", default: false },
   },
 });
 
 const query = positionals.join(" ").trim();
 if (values.help || !query) {
-  process.stderr.write('usage: retrieve [--book vol1] [--rerank] [--json] [--full] [--k 12] [--prior "norm,norm"] "<query>"\n');
+  process.stderr.write('usage: retrieve [--book vol1] [--rerank] [--json] [--full] [--k 12] [--prior "norm,norm"] [--focus book:page,...] "<query>"\n');
   process.exit(values.help ? 0 : 2);
 }
 
@@ -39,6 +40,12 @@ try {
       rerank,
       topK: values.k ? Number(values.k) : undefined,
       priorEntities: values.prior ? values.prior.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+      focusPages: values.focus
+        ? values.focus.split(",").map((s) => {
+            const [book, page] = s.trim().split(":");
+            return { book: book!, page: Number(page) };
+          })
+        : undefined,
     },
   );
   process.stdout.write(values.json ? JSON.stringify(result, null, 2) + "\n" : format(result, values.full) + "\n");

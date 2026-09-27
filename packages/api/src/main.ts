@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * API entry point. PORT (8080), HOST (0.0.0.0), DATA_DIR, THUMB_CACHE_DIR, CORS_ORIGIN,
- * DATABASE_URL, VOYAGE_API_KEY, ANTHROPIC_API_KEY, RERANK_ENABLED, RETAKE_ENABLED, RETAKE_TOKEN, UPLOAD_DIR, ...
+ * DATABASE_URL, VOYAGE_API_KEY, ANTHROPIC_API_KEY, RERANK_ENABLED, RETAKE_ENABLED, RETAKE_TOKEN, UPLOAD_DIR,
+ * AUTH_REQUIRED, COOKIE_SECURE, TRUST_PROXY, ...
  */
 import os from "node:os";
 import path from "node:path";
@@ -15,10 +16,12 @@ import {
   loadDotEnv,
 } from "@miriel/shared";
 import { createPool } from "@miriel/shared/db";
+import { pgAuthStore } from "@miriel/shared/users";
 import { answer } from "./answer/index.js";
 import { loadBookLabels } from "./books.js";
 import { RETRIEVE_DEFAULTS, resolveEntities, retrieve } from "./retrieval/index.js";
 import { findArt } from "./art-match.js";
+import { pgChecklistStore } from "./checklists.js";
 import { buildServer } from "./server.js";
 
 loadDotEnv();
@@ -47,8 +50,14 @@ const retake = envFlag("RETAKE_ENABLED", false)
   ? { uploadDir: path.resolve(process.env["UPLOAD_DIR"] || path.join(os.tmpdir(), "miriel-uploads")), token: process.env["RETAKE_TOKEN"] || undefined }
   : undefined;
 
+/** Accounts: checklist progress and admin need a login; AUTH_REQUIRED=true puts every api route behind it. */
+const auth = { store: pgAuthStore(pool), required: envFlag("AUTH_REQUIRED", false), cookieSecure: envFlag("COOKIE_SECURE", false) };
+
 const app = await buildServer({
   pool,
+  auth,
+  checklists: pgChecklistStore(pool),
+  trustProxy: envFlag("TRUST_PROXY", false),
   dataDir,
   thumbCacheDir,
   corsOrigin: process.env["CORS_ORIGIN"],
@@ -77,7 +86,7 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 try {
   await app.listen({ port, host });
   app.log.info(
-    { dataDir, thumbCacheDir, embedder: embedder.model, rerank: Boolean(reranker), retake: retake ? { uploadDir: retake.uploadDir, token: Boolean(retake.token) } : false },
+    { dataDir, thumbCacheDir, authRequired: auth.required, embedder: embedder.model, rerank: Boolean(reranker), retake: retake ? { uploadDir: retake.uploadDir, token: Boolean(retake.token) } : false },
     "miriel api ready",
   );
 } catch (err) {

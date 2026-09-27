@@ -209,7 +209,7 @@ export class RetakeWorker {
       } else {
         const dup = await client.query<{ upload_name: string | null }>(
           `SELECT upload_name FROM retake_jobs WHERE batch_id = $1 AND page = $2 AND id <> $3
-             AND status IN ('validated', 'confirmed', 'running')`,
+             AND status IN ('validated', 'submitted', 'confirmed', 'running')`,
           [job.batch_id, item.printed, job.id],
         );
         if (job.batch_id && dup.rows[0]) {
@@ -217,7 +217,7 @@ export class RetakeWorker {
         } else {
           status = "validated";
           const pending = await client.query(
-            `SELECT 1 FROM retake_jobs WHERE book_id = $1 AND page = $2 AND id <> $3 AND status IN ('validated', 'confirmed', 'running')
+            `SELECT 1 FROM retake_jobs WHERE book_id = $1 AND page = $2 AND id <> $3 AND status IN ('validated', 'submitted', 'confirmed', 'running')
                AND batch_id IS DISTINCT FROM $4`,
             [job.book_id, item.printed, job.id, job.batch_id],
           );

@@ -82,10 +82,17 @@ services:
       ANSWER_MODEL: ${ANSWER_MODEL:-claude-sonnet-5}
       RERANK_ENABLED: ${RERANK_ENABLED:-false}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      # Page retakes: the routes exist only with RETAKE_ENABLED=true; RETAKE_TOKEN (optional) guards uploads/confirms.
+      # Page retakes: the routes exist only with RETAKE_ENABLED=true; changes need a login (users submit, admins
+      # approve); RETAKE_TOKEN (optional) gives scripts admin rights via x-retake-token.
       RETAKE_ENABLED: ${RETAKE_ENABLED:-false}
       RETAKE_TOKEN: ${RETAKE_TOKEN:-}
       UPLOAD_DIR: /uploads
+      # Accounts (docs/build-spec-checklist.md): AUTH_REQUIRED=true puts the whole site behind the login;
+      # COOKIE_SECURE=true when the site is served over https. Only nginx reaches the api, so its
+      # X-Forwarded-For is the client address (login rate limit).
+      AUTH_REQUIRED: ${AUTH_REQUIRED:-false}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      TRUST_PROXY: "true"
     volumes:
       - ./data:/data:ro
       - thumbs:/cache/thumbs

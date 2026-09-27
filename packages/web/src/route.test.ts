@@ -10,6 +10,11 @@ test("parseRoute: reader, queue, batch, page", () => {
   assert.deepEqual(parseRoute("/retakes/vol1/289", ""), { name: "retake-page", book: "vol1", page: 289 });
   assert.deepEqual(parseRoute("/retakes/vol1/x", ""), { name: "retakes" });
   assert.deepEqual(parseRoute("/something", ""), { name: "reader" });
+  assert.deepEqual(parseRoute("/admin/users", ""), { name: "admin-users" });
+  assert.deepEqual(parseRoute("/admin/users/", ""), { name: "admin-users" });
+  assert.deepEqual(parseRoute("/admin", ""), { name: "reader" });
+  assert.deepEqual(parseRoute("/checklist", "?list=dlc&book=vol3"), { name: "checklist", list: "dlc" });
+  assert.deepEqual(parseRoute("/checklist/", ""), { name: "checklist", list: null });
 });
 
 test("paths round-trip", () => {

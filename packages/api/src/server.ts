@@ -10,11 +10,15 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AnswerEvent, AnswerInput } from "./answer/index.js";
 import type { ArtItem } from "./art-match.js";
+import { registerAuth, type AuthConfig } from "./auth.js";
+import type { ChecklistStore } from "./checklists.js";
 import { HttpProblem, sendProblem } from "./problem.js";
 import type { RetrievalResult, RetrieveOptions } from "./retrieval/types.js";
+import { registerAdminRoutes } from "./routes/admin.js";
 import { registerArtworkRoutes } from "./routes/artworks.js";
 import { registerBookRoutes } from "./routes/books.js";
 import { registerChatRoutes } from "./routes/chat.js";
+import { registerChecklistRoutes } from "./routes/checklists.js";
 import { registerEntityRoutes } from "./routes/entities.js";
 import { registerRetakeRoutes, type RetakeConfig } from "./routes/retakes.js";
 
@@ -36,6 +40,12 @@ export interface ServerDeps {
   embedQuery?: ((text: string) => Promise<number[]>) | undefined;
   /** Page retake routes (RETAKE_ENABLED=true); absent = the routes do not exist (404). */
   retake?: RetakeConfig | undefined;
+  /** Accounts and sessions (docs/build-spec-checklist.md); absent = no login, no /api/auth or /api/admin routes. */
+  auth?: AuthConfig | undefined;
+  /** Quest checklists, runs and progress (docs/build-spec-checklist.md); absent = no /api/checklists or /api/runs. */
+  checklists?: ChecklistStore | undefined;
+  /** TRUST_PROXY: take the client address from X-Forwarded-For (behind the nginx of the Compose stack). */
+  trustProxy?: boolean | undefined;
   logger?: boolean | object | undefined;
 }
 
@@ -52,7 +62,7 @@ export function isDatabaseDown(error: unknown): boolean {
 }
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
-  const app = Fastify({ logger: deps.logger ?? { level: process.env["LOG_LEVEL"] ?? "info" } });
+  const app = Fastify({ logger: deps.logger ?? { level: process.env["LOG_LEVEL"] ?? "info" }, trustProxy: deps.trustProxy ?? false });
 
   if (deps.corsOrigin) {
     await app.register(fastifyCors, { origin: deps.corsOrigin.split(",").map((s) => s.trim()) });
@@ -88,10 +98,12 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     }
   });
 
+  if (deps.auth) registerAdminRoutes(app, deps.auth, registerAuth(app, deps.auth));
   registerBookRoutes(app, deps);
   registerArtworkRoutes(app, deps);
   registerEntityRoutes(app, deps);
   registerChatRoutes(app, deps);
+  if (deps.checklists) registerChecklistRoutes(app, deps.checklists);
   if (deps.retake) registerRetakeRoutes(app, deps, deps.retake);
   return app;
 }

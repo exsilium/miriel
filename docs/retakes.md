@@ -12,8 +12,13 @@ checking a photo and rolling back cost nothing.
 
 ## 0. One-time setup
 
-1. In `.env`: `RETAKE_ENABLED=true`. Optional: `RETAKE_TOKEN=<something>` (then uploads and confirms ask for
-   it once per browser) and `RETAKE_DAILY_BUDGET_USD` (default 10; jobs beyond it wait until the next day).
+1. In `.env`: `RETAKE_ENABLED=true`. Optional: `RETAKE_DAILY_BUDGET_USD` (default 10; jobs beyond it wait until
+   the next day) and `RETAKE_TOKEN=<something>` for scripts (`x-retake-token` header; admin rights).
+   Uploading and everything else in the UI needs a login (README, "Create your admin account"). Anyone with an
+   account can upload photos. A user's checked photo goes to **Submit for approval**, and an admin approves
+   (**Approve and process**, the step that costs credit) or declines it with a note. Admins' own photos run
+   straight away. Admins see the waiting photos at the top of `/retakes` and as a green ✓ N next to **Retakes**
+   in the top bar (docs/build-spec-retakes.md §11).
 2. `npm run up`. This applies the retake migrations and starts the `retake-worker` next to the api.
 3. `npm run index` once, so every page has a photo version (needed for cache-safe URLs; nothing is
    re-embedded).

@@ -1,0 +1,25 @@
+{
+  "main": {
+    "title": "Elden Ring: all NPC interactions",
+    "label": "Base game",
+    "file": "checklists/main.md",
+    "author": "u/Stellarwand",
+    "sourceUrl": "https://www.reddit.com/r/Eldenring/comments/tjmodv/all_npc_interactions_in_elden_ring/",
+    "books": ["vol1", "vol2"],
+    "idPrefix": "m",
+    "markers": {
+      "*****": { "footnote": "frenzied-flame", "label": "Frenzied Flame", "section": "Frenzied Flame Ending" },
+      "**": { "chain": true }
+    }
+  },
+  "dlc": {
+    "title": "Shadow of the Erdtree: all NPC interactions",
+    "label": "Shadow of the Erdtree",
+    "file": "checklists/dlc.md",
+    "author": "u/Stellarwand",
+    "sourceUrl": "https://www.reddit.com/r/Eldenring/comments/1dnw7dr/all_npc_interactions_in_shadow_of_the_erdtree/",
+    "books": ["vol3"],
+    "idPrefix": "d",
+    "markers": {}
+  }
+}

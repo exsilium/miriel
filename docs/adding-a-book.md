@@ -166,6 +166,12 @@ In the browser (http://localhost:3000): pick the book in the top-bar selector, o
 `?book=vol3&page=<n>`, ask a question with the search scope on "all books", and click a Vol 3 citation
 pill: the viewer switches to Vol 3 at that page and highlights the quote.
 
+## Quest checklists
+
+A new guide is not used by the quest checklists until it is in a list's `books` in `config/checklists.json`
+(the DLC list uses vol3). If it should be, add it there, then `npm run checklist-pages -- --force`,
+`npm run py -- scripts/checklist_qa.py` and `npm run index` (`docs/checklist.md`).
+
 ## Removing a book
 
 ```

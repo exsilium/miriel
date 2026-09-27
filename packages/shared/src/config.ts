@@ -92,6 +92,31 @@ export function loadBooksConfig(file: string): BooksConfig {
   return BooksConfigSchema.parse(raw);
 }
 
+/**
+ * A quest checklist (docs/build-spec-checklist.md): config/checklists.json, id -> list. `file` is relative to
+ * config/; `books` are the guides its page links and chat questions use; `markers` are read by
+ * scripts/checklist_build.py.
+ */
+export const ChecklistConfigSchema = z.object({
+  title: z.string().min(1),
+  label: z.string().min(1),
+  file: z.string().min(1),
+  author: z.string().optional(),
+  sourceUrl: z.string().optional(),
+  books: z.array(z.string()).min(1),
+  idPrefix: z.string().regex(/^[a-z]+$/),
+  markers: z.record(z.string(), z.unknown()).default({}),
+});
+export const ChecklistsConfigSchema = z.record(z.string().regex(/^[a-z0-9_-]+$/), ChecklistConfigSchema);
+export type ChecklistConfig = z.infer<typeof ChecklistConfigSchema>;
+export type ChecklistsConfig = z.infer<typeof ChecklistsConfigSchema>;
+
+/** config/checklists.json; {} when the file does not exist (a stack without checklists). */
+export function loadChecklistsConfig(file: string): ChecklistsConfig {
+  if (!existsSync(file)) return {};
+  return ChecklistsConfigSchema.parse(JSON.parse(readFileSync(file, "utf8")) as unknown);
+}
+
 /** Walk up from `start` looking for a directory that contains `marker`. */
 export function findUp(marker: string, start = process.cwd()): string | undefined {
   let dir = path.resolve(start);

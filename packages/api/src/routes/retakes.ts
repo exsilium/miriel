@@ -1,25 +1,37 @@
 /**
  * Page retake jobs (docs/build-spec-retakes.md §4). Registered only when RETAKE_ENABLED=true. The api never
  * writes source files: it stores uploads in UPLOAD_DIR (the `uploads` volume) and records jobs; the retake
- * worker validates and runs them. With RETAKE_TOKEN set, every POST needs `x-retake-token: <token>`.
+ * worker validates and runs them.
+ *
+ * Who may do what (docs/build-spec-checklist.md §3 decision 13, docs/build-spec-retakes.md §10): with accounts
+ * (the api's normal setup) every POST needs a logged-in user or the RETAKE_TOKEN (`x-retake-token`, admin
+ * rights, for scripts). Users upload, set pages, submit their validated photos for approval and withdraw their
+ * own jobs; admins confirm (= approve) or decline, retry, roll back and mark pages accepted. An admin's own
+ * photos need no approval. Without accounts (tests) only RETAKE_TOKEN guards, as before.
  *
  *   POST /api/retakes?book=vol1[&page=289][&batch=<id>][&filename=x.jpg]   body: the photo (image/jpeg | image/png)
  *   GET  /api/retakes[?book=][&status=][&batch=]    jobs, newest first
  *   GET  /api/retakes/:id                           job + progress events
  *   GET  /api/retakes/:id/events                    SSE: `job` snapshots and `event` lines until the job settles
- *   POST /api/retakes/:id/confirm                   validated -> confirmed (spends the estimate)
- *   POST /api/retakes/batches/:batch/confirm        every validated job of a batch, run as one retake
+ *   POST /api/retakes/:id/submit                    validated -> submitted (a user asks an admin to run it)
+ *   POST /api/retakes/batches/:batch/submit         the user's validated jobs of a batch
+ *   POST /api/retakes/:id/confirm                   validated | submitted -> confirmed (admin; spends the estimate)
+ *   POST /api/retakes/batches/:batch/confirm        every validated or submitted job of a batch, run as one retake
+ *   POST /api/retakes/:id/decline  {note?}          submitted -> declined (admin); the photo stays viewable
+ *   POST /api/retakes/batches/:batch/decline {note?}
  *   POST /api/retakes/:id/discard                   any job that has not started, or failed before the PDF swap
- *   POST /api/retakes/:id/retry                     failed -> confirmed (resumes from the last completed stage)
- *   POST /api/retakes/rollback   {book, page}       undo the page's latest retake (no model call)
+ *                                                   (users: their own jobs that have not been confirmed)
+ *   POST /api/retakes/:id/retry                     failed -> confirmed (admin; resumes from the last completed stage)
+ *   POST /api/retakes/rollback   {book, page}       undo the page's latest retake (admin; no model call)
  *
  * For the retake UI (§6):
- *   GET  /api/retakes/config                        token required?, page counts per queue status (404 = retakes off)
+ *   GET  /api/retakes/config                        what the viewer may do, page counts per queue status, jobs
+ *                                                   waiting for approval (404 = retakes off)
  *   GET  /api/retakes/queue[?book=]                 flagged pages and pages with retake activity, with their status
  *   GET  /api/retakes/history?book=&page=           photo versions (DATA_DIR log) + jobs of one page
  *   GET  /api/retakes/:id/upload                    the uploaded photo, for the old / new comparison
  *   POST /api/retakes/:id/page   {page}             set the page by hand (unmatched batch photo); re-validates
- *   POST /api/retakes/accept     {book, page, accepted}   mark a flagged page as fine without a retake (or undo)
+ *   POST /api/retakes/accept     {book, page, accepted}   mark a flagged page as fine without a retake (admin; or undo)
  */
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -48,7 +60,11 @@ export interface RetakeConfig {
 
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 /** Statuses after which a job no longer changes on its own. */
-export const SETTLED = new Set(["validated", "rejected", "done", "failed", "rolled_back", "discarded"]);
+export const SETTLED = new Set(["validated", "submitted", "rejected", "declined", "done", "failed", "rolled_back", "discarded"]);
+/** A user may have at most this many photos waiting (uploaded, validated or submitted); admins are not limited. */
+export const MAX_OPEN_PER_USER = 50;
+/** Jobs a user may still withdraw (nothing has been spent on them). */
+const WITHDRAWABLE = ["uploaded", "validated", "submitted", "rejected", "declined"];
 const SSE_POLL_MS = 1000;
 const SSE_MAX_MS = 2 * 60 * 60 * 1000;
 
@@ -73,7 +89,7 @@ const HistoryQuery = z.object({ book: z.string().regex(/^[a-z0-9_-]+$/), page: z
 
 /** Where a page stands in the retake queue. */
 export type QueueStatus = "flagged" | "in_progress" | "done" | "still_flagged" | "accepted";
-const OPEN_JOB = new Set(["uploaded", "validated", "rejected", "confirmed", "running", "failed"]);
+const OPEN_JOB = new Set(["uploaded", "validated", "submitted", "rejected", "confirmed", "running", "failed"]);
 
 export function queueStatus(flagged: boolean, job: { kind: string; status: string } | null): QueueStatus {
   if (job?.kind === "accept") return "accepted";
@@ -95,13 +111,16 @@ interface QueueRow {
   job_txn: string | null;
 }
 
-/** Flagged pages plus every page with retake activity; the latest non-discarded retake/accept job decides the status. */
+/**
+ * Flagged pages plus every page with retake activity; the latest retake/accept job that was not discarded or
+ * declined decides the status (a declined photo leaves the page where it was).
+ */
 async function queueRows(pool: Pool, book: string | undefined, dataDir?: string): Promise<QueueRow[]> {
   const { rows } = await pool.query<QueueRow>(
     `WITH latest AS (
        SELECT DISTINCT ON (book_id, page) book_id, page, id, kind, status, message, updated_at, txn_id
          FROM retake_jobs
-        WHERE page IS NOT NULL AND kind IN ('retake', 'accept') AND status <> 'discarded'
+        WHERE page IS NOT NULL AND kind IN ('retake', 'accept') AND status NOT IN ('discarded', 'declined')
         ORDER BY book_id, page, created_at DESC
      )
      SELECT p.book_id, p.page, p.quality, p.image_sha256,
@@ -213,13 +232,22 @@ export interface JobRow {
   batch_id: string | null;
   created_at: Date;
   updated_at: Date;
+  uploaded_by: string | null;
+  submitted_at: Date | null;
+  decided_by: string | null;
+  decided_at: Date | null;
+  decision_note: string | null;
 }
 
 const COLUMNS =
   "id, book_id, page, kind, status, stage, message, upload_path, upload_name, image_sha256, folio_check, estimate_usd, cost_usd, " +
-  "before, after, error, pdf_committed, txn_id, batch_id, created_at, updated_at";
+  "before, after, error, pdf_committed, txn_id, batch_id, created_at, updated_at, uploaded_by, submitted_at, decided_by, decided_at, decision_note";
 
-export function toJob(r: JobRow) {
+/** user id -> username, for "uploaded by" / "approved by". */
+export type UserNames = Map<string, string>;
+
+export function toJob(r: JobRow, names: UserNames = new Map()) {
+  const who = (id: string | null) => (id ? { id, username: names.get(id) ?? null } : null);
   return {
     id: r.id,
     book: r.book_id,
@@ -241,7 +269,37 @@ export function toJob(r: JobRow) {
     batchId: r.batch_id,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
+    uploadedBy: who(r.uploaded_by ?? null),
+    submittedAt: r.submitted_at ?? null,
+    decidedBy: who(r.decided_by ?? null),
+    decidedAt: r.decided_at ?? null,
+    decisionNote: r.decision_note ?? null,
   };
+}
+
+async function userNames(pool: Pool, rows: JobRow[]): Promise<UserNames> {
+  const ids = [...new Set(rows.flatMap((r) => [r.uploaded_by, r.decided_by]).filter((x): x is string => Boolean(x)))];
+  if (!ids.length) return new Map();
+  const { rows: users } = await pool.query<{ id: string; username: string }>("SELECT id, username FROM users WHERE id = ANY($1)", [ids]);
+  return new Map(users.map((u) => [u.id, u.username]));
+}
+
+/** Jobs as the api returns them, with user names resolved. */
+export async function jobsOut(pool: Pool, rows: JobRow[]) {
+  const names = await userNames(pool, rows);
+  return rows.map((r) => toJob(r, names));
+}
+
+/** Who is asking: a user (admin or not), the RETAKE_TOKEN (admin rights), or anyone when neither guard exists. */
+export interface RetakeActor {
+  userId: string | null;
+  admin: boolean;
+  via: "user" | "token" | "open";
+}
+
+/** Owner or admin: may change a job that has not been confirmed. */
+export function ownsJob(actor: RetakeActor, job: { uploaded_by: string | null }): boolean {
+  return actor.admin || (actor.userId !== null && job.uploaded_by === actor.userId);
 }
 
 /** The photo type from its first bytes; the Content-Type header alone is not trusted. */
@@ -271,31 +329,93 @@ async function getEvents(pool: Pool, id: string, after = 0) {
   return rows.map((e) => ({ id: Number(e.id), at: e.at, stage: e.stage, message: e.message }));
 }
 
+/** Marks a column to be set to now() in a status transition. */
+const NOW = Symbol("now()");
+type Assign = Record<string, unknown>;
+
+/** "SET status = $3, message = $4, col = $5 | now(), ..., updated_at = now()" with params appended after the first four. */
+function setClause(params: unknown[], extra: Assign): string {
+  const sets = ["status = $3", "message = $4"];
+  for (const [col, v] of Object.entries(extra)) {
+    if (v === NOW) sets.push(col + " = now()");
+    else {
+      params.push(v);
+      sets.push(col + " = $" + params.length);
+    }
+  }
+  sets.push("updated_at = now()");
+  return sets.join(", ");
+}
+
+const Note = z.object({ note: z.string().trim().max(500).optional() });
+
 export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg: RetakeConfig): void {
   app.addContentTypeParser(["image/jpeg", "image/png"], { parseAs: "buffer", bodyLimit: MAX_UPLOAD_BYTES }, (_req, body, done) => done(null, body));
 
-  const requireToken = (request: FastifyRequest): void => {
-    if (!cfg.token) return;
+  const tokenMatches = (request: FastifyRequest): boolean => {
+    if (!cfg.token) return false;
     const given = Buffer.from(String(request.headers["x-retake-token"] ?? ""));
     const want = Buffer.from(cfg.token);
-    if (given.length !== want.length || !timingSafeEqual(given, want)) {
-      throw new HttpProblem(401, "Retake token required", "Send the RETAKE_TOKEN value in the x-retake-token header.");
-    }
+    return given.length === want.length && timingSafeEqual(given, want);
   };
 
-  const transition = async (id: string, from: string[], set: string, message: string) => {
-    const { rows } = await deps.pool.query<JobRow>(
-      "UPDATE retake_jobs SET status = $3, message = $4, updated_at = now() WHERE id = $1 AND status = ANY($2) RETURNING " + COLUMNS,
-      [id, from, set, message],
-    );
-    if (rows[0]) return rows[0];
+  /** Null when the request may not change retakes at all. */
+  const actorOf = (request: FastifyRequest): RetakeActor | null => {
+    const user = request.user ?? null;
+    if (tokenMatches(request)) return { userId: user?.id ?? null, admin: true, via: "token" };
+    if (deps.auth) {
+      if (!user || user.mustChangePassword) return null;
+      return { userId: user.id, admin: user.role === "admin", via: "user" };
+    }
+    // no accounts (tests, or an api built without them): the token alone guards, as before accounts existed
+    return cfg.token ? null : { userId: null, admin: true, via: "open" };
+  };
+
+  const requireActor = (request: FastifyRequest, admin = false): RetakeActor => {
+    const actor = actorOf(request);
+    if (!actor) {
+      if (deps.auth) throw new HttpProblem(401, "Login required", "Log in to upload photos or change retakes.");
+      throw new HttpProblem(401, "Retake token required", "Send the RETAKE_TOKEN value in the x-retake-token header.");
+    }
+    if (admin && !actor.admin) throw new HttpProblem(403, "Admins only", "An admin confirms, declines, retries and rolls back retakes.");
+    return actor;
+  };
+
+  const requireJob = async (id: string): Promise<JobRow> => {
     const job = await getJob(deps.pool, id);
     if (!job) throw new HttpProblem(404, "Unknown retake job", "No retake job " + id + ".");
+    return job;
+  };
+
+  const requireOwn = (actor: RetakeActor, job: JobRow): void => {
+    if (!ownsJob(actor, job)) throw new HttpProblem(403, "Not your photo", "Only the user who uploaded it (or an admin) can change this job.");
+  };
+
+  const transition = async (id: string, from: string[], set: string, message: string, extra: Assign = {}) => {
+    const params: unknown[] = [id, from, set, message];
+    const sql = "UPDATE retake_jobs SET " + setClause(params, extra) + " WHERE id = $1 AND status = ANY($2) RETURNING " + COLUMNS;
+    const { rows } = await deps.pool.query<JobRow>(sql, params);
+    if (rows[0]) return rows[0];
+    const job = await requireJob(id);
     throw new HttpProblem(409, "Wrong job status", "Job " + id + " is " + job.status + "; expected " + from.join(" or ") + ".");
   };
 
+  /** The same transition for every matching job of a batch (only the actor's own jobs unless `ownerId` is null). */
+  const batchTransition = async (batch: string, from: string[], set: string, message: string, extra: Assign, ownerId: string | null) => {
+    const params: unknown[] = [batch, from, set, message];
+    let sql = "UPDATE retake_jobs SET " + setClause(params, extra) + " WHERE batch_id = $1 AND status = ANY($2)";
+    if (ownerId !== null) {
+      params.push(ownerId);
+      sql += " AND uploaded_by = $" + params.length;
+    }
+    const { rows } = await deps.pool.query<JobRow>(sql + " RETURNING " + COLUMNS, params);
+    return rows;
+  };
+
+  const out = async (row: JobRow) => (await jobsOut(deps.pool, [row]))[0]!;
+
   app.post("/api/retakes", async (request, reply) => {
-    requireToken(request);
+    const actor = requireActor(request);
     const q = parse(UploadQuery, request.query);
     const book = await requireGuide(deps, q.book);
     if (q.page !== undefined) {
@@ -309,6 +429,15 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
     }
     const ext = sniffImage(body);
     if (!ext) throw new HttpProblem(415, "Not a JPEG or PNG", "The body is neither a JPEG nor a PNG file.");
+    if (!actor.admin && actor.userId) {
+      const { rows } = await deps.pool.query<{ n: string }>(
+        "SELECT count(*) AS n FROM retake_jobs WHERE uploaded_by = $1 AND status = ANY($2)",
+        [actor.userId, ["uploaded", "validated", "submitted"]],
+      );
+      if (Number(rows[0]?.n ?? 0) >= MAX_OPEN_PER_USER) {
+        throw new HttpProblem(429, "Too many open photos", "You have " + MAX_OPEN_PER_USER + " photos waiting; submit or discard some first.");
+      }
+    }
     const id = randomUUID();
     const name = safeName(q.filename ?? (request.headers["x-filename"] as string | undefined), ext);
     const rel = id + "/" + name;
@@ -316,12 +445,12 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
     await writeFile(path.join(cfg.uploadDir, rel), body);
     try {
       const { rows } = await deps.pool.query<JobRow>(
-        `INSERT INTO retake_jobs (id, book_id, page, kind, status, message, upload_path, upload_name, batch_id)
-         VALUES ($1, $2, $3, 'retake', 'uploaded', 'waiting for the worker to check the photo', $4, $5, $6) RETURNING ` + COLUMNS,
-        [id, q.book, q.page ?? null, rel, name, q.batch ?? null],
+        `INSERT INTO retake_jobs (id, book_id, page, kind, status, message, upload_path, upload_name, batch_id, uploaded_by)
+         VALUES ($1, $2, $3, 'retake', 'uploaded', 'waiting for the worker to check the photo', $4, $5, $6, $7) RETURNING ` + COLUMNS,
+        [id, q.book, q.page ?? null, rel, name, q.batch ?? null, actor.userId],
       );
       reply.code(201);
-      return toJob(rows[0]!);
+      return out(rows[0]!);
     } catch (err) {
       await rm(path.join(cfg.uploadDir, id), { recursive: true, force: true });
       throw err;
@@ -342,19 +471,18 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
       "SELECT " + COLUMNS + " FROM retake_jobs" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY created_at DESC LIMIT 500",
       params,
     );
-    return rows.map(toJob);
+    return jobsOut(deps.pool, rows);
   });
 
   app.get("/api/retakes/:id", async (request) => {
     const { id } = parse(Id, request.params);
-    const job = await getJob(deps.pool, id);
-    if (!job) throw new HttpProblem(404, "Unknown retake job", "No retake job " + id + ".");
-    return { ...toJob(job), events: await getEvents(deps.pool, id) };
+    const job = await requireJob(id);
+    return { ...(await out(job)), events: await getEvents(deps.pool, id) };
   });
 
   app.get("/api/retakes/:id/events", async (request, reply) => {
     const { id } = parse(Id, request.params);
-    if (!(await getJob(deps.pool, id))) throw new HttpProblem(404, "Unknown retake job", "No retake job " + id + ".");
+    await requireJob(id);
     reply.hijack();
     const sse = openSse(reply.raw);
     const started = Date.now();
@@ -367,7 +495,7 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
         const stamp = new Date(job.updated_at).toISOString() + job.status;
         if (stamp !== lastUpdate) {
           lastUpdate = stamp;
-          sse.send("job", toJob(job));
+          sse.send("job", await out(job));
         }
         const events = await getEvents(deps.pool, id, lastEvent);
         for (const e of events) sse.send("event", e);
@@ -386,29 +514,65 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
     }
   });
 
-  app.post("/api/retakes/:id/confirm", async (request) => {
-    requireToken(request);
+  app.post("/api/retakes/:id/submit", async (request) => {
+    const actor = requireActor(request);
     const { id } = parse(Id, request.params);
-    return toJob(await transition(id, ["validated"], "confirmed", "confirmed; queued for the worker"));
+    requireOwn(actor, await requireJob(id));
+    return out(await transition(id, ["validated"], "submitted", "waiting for an admin's approval", { submitted_at: NOW }));
+  });
+
+  app.post("/api/retakes/batches/:batch/submit", async (request) => {
+    const actor = requireActor(request);
+    const { batch } = parse(Batch, request.params);
+    const rows = await batchTransition(batch, ["validated"], "submitted", "waiting for an admin's approval", { submitted_at: NOW }, actor.admin ? null : actor.userId);
+    if (!rows.length) throw new HttpProblem(409, "Nothing to submit", "Batch " + batch + " has no validated photos of yours.");
+    return jobsOut(deps.pool, rows);
+  });
+
+  app.post("/api/retakes/:id/confirm", async (request) => {
+    const actor = requireActor(request, true);
+    const { id } = parse(Id, request.params);
+    const before = await requireJob(id);
+    const message = before.status === "submitted" ? "approved; queued for the worker" : "confirmed; queued for the worker";
+    return out(await transition(id, ["validated", "submitted"], "confirmed", message, { decided_by: actor.userId, decided_at: NOW }));
   });
 
   app.post("/api/retakes/batches/:batch/confirm", async (request) => {
-    requireToken(request);
+    const actor = requireActor(request, true);
     const { batch } = parse(Batch, request.params);
-    const { rows } = await deps.pool.query<JobRow>(
-      "UPDATE retake_jobs SET status = 'confirmed', message = 'confirmed; queued for the worker', updated_at = now() " +
-        "WHERE batch_id = $1 AND status = 'validated' RETURNING " + COLUMNS,
-      [batch],
+    const rows = await batchTransition(batch, ["validated", "submitted"], "confirmed", "confirmed; queued for the worker", { decided_by: actor.userId, decided_at: NOW }, null);
+    if (!rows.length) throw new HttpProblem(409, "Nothing to confirm", "Batch " + batch + " has no validated or submitted jobs.");
+    return jobsOut(deps.pool, rows);
+  });
+
+  app.post("/api/retakes/:id/decline", async (request) => {
+    const actor = requireActor(request, true);
+    const { id } = parse(Id, request.params);
+    const { note } = parse(Note, request.body ?? {});
+    return out(
+      await transition(id, ["submitted"], "declined", note ? "declined: " + note : "declined", { decided_by: actor.userId, decided_at: NOW, decision_note: note || null }),
     );
-    if (!rows.length) throw new HttpProblem(409, "Nothing to confirm", "Batch " + batch + " has no validated jobs.");
-    return rows.map(toJob);
+  });
+
+  app.post("/api/retakes/batches/:batch/decline", async (request) => {
+    const actor = requireActor(request, true);
+    const { batch } = parse(Batch, request.params);
+    const { note } = parse(Note, request.body ?? {});
+    const rows = await batchTransition(batch, ["submitted"], "declined", note ? "declined: " + note : "declined", { decided_by: actor.userId, decided_at: NOW, decision_note: note || null }, null);
+    if (!rows.length) throw new HttpProblem(409, "Nothing to decline", "Batch " + batch + " has no submitted jobs.");
+    return jobsOut(deps.pool, rows);
   });
 
   app.post("/api/retakes/:id/discard", async (request) => {
-    requireToken(request);
+    const actor = requireActor(request);
     const { id } = parse(Id, request.params);
-    const job = await getJob(deps.pool, id);
-    if (!job) throw new HttpProblem(404, "Unknown retake job", "No retake job " + id + ".");
+    const job = await requireJob(id);
+    if (!actor.admin) {
+      requireOwn(actor, job);
+      if (!WITHDRAWABLE.includes(job.status)) {
+        throw new HttpProblem(403, "Admins only", "This retake was confirmed; only an admin can stop it now.");
+      }
+    }
     if (job.pdf_committed) throw new HttpProblem(409, "Cannot discard", "This retake already replaced the book PDF; finish it (retry), then roll back.");
     if (job.txn_id && (job.status === "failed" || job.status === "confirmed")) {
       // the photos of one started retake are dropped together; the worker then abandons its journal
@@ -418,14 +582,14 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
       );
     } else {
       // a confirmed job the worker is claiming right now is `running` once its lock is released: 409
-      await transition(id, ["uploaded", "validated", "rejected", "confirmed", "failed"], "discarded", "discarded");
+      await transition(id, [...WITHDRAWABLE, "confirmed", "failed"], "discarded", actor.admin && job.uploaded_by !== actor.userId && job.uploaded_by ? "discarded by an admin" : "discarded");
     }
     if (job.upload_path) await rm(path.join(cfg.uploadDir, path.dirname(job.upload_path)), { recursive: true, force: true });
-    return toJob((await getJob(deps.pool, id))!);
+    return out((await getJob(deps.pool, id))!);
   });
 
   app.post("/api/retakes/:id/retry", async (request) => {
-    requireToken(request);
+    requireActor(request, true);
     const { id } = parse(Id, request.params);
     const job = await transition(id, ["failed"], "confirmed", "retry queued; resumes from the last completed stage");
     if (job.txn_id) {
@@ -434,10 +598,10 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
         [job.txn_id, "retry queued; resumes from the last completed stage"],
       );
     }
-    return toJob(job);
+    return out(job);
   });
 
-  app.get("/api/retakes/config", async () => {
+  app.get("/api/retakes/config", async (request) => {
     const counts: Record<QueueStatus, number> = { flagged: 0, in_progress: 0, done: 0, still_flagged: 0, accepted: 0 };
     for (const r of await queueRows(deps.pool, undefined, deps.dataDir)) {
       counts[queueStatus(Boolean(r.quality["retake_recommended"]), r.job_kind ? { kind: r.job_kind, status: r.job_status ?? "" } : null)] += 1;
@@ -452,7 +616,19 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
         return { book: b.id, label: b.label, pageCount: b.page_count, replacedSinceBuild: replaced, lastBuild: since, suggest: replaced > b.page_count * REBUILD_SHARE };
       }),
     );
-    return { enabled: true, tokenRequired: Boolean(cfg.token), maxUploadBytes: MAX_UPLOAD_BYTES, counts, rebuild };
+    const { rows: waiting } = await deps.pool.query<{ n: string }>("SELECT count(*) AS n FROM retake_jobs WHERE status = 'submitted'");
+    const actor = actorOf(request);
+    return {
+      enabled: true,
+      tokenRequired: Boolean(cfg.token),
+      /** With accounts, changes need a login (or the token); without, only the token. */
+      accounts: Boolean(deps.auth),
+      viewer: { canUpload: Boolean(actor), canApprove: Boolean(actor?.admin), userId: actor?.userId ?? null },
+      awaitingApproval: Number(waiting[0]?.n ?? 0),
+      maxUploadBytes: MAX_UPLOAD_BYTES,
+      counts,
+      rebuild,
+    };
   });
 
   app.get("/api/retakes/queue", async (request) => {
@@ -483,7 +659,7 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
       "SELECT " + COLUMNS + " FROM retake_jobs WHERE book_id = $1 AND page = $2 ORDER BY created_at DESC LIMIT 100",
       [q.book, q.page],
     );
-    const jobs = rows.map(toJob);
+    const jobs = await jobsOut(deps.pool, rows);
     const versions = [...entries].reverse().map((e) => {
       const job = jobs.find((j) => j.txnId === e.txn && j.page === e.page && j.kind === e.action);
       return {
@@ -516,29 +692,30 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
   });
 
   app.post("/api/retakes/:id/page", async (request) => {
-    requireToken(request);
+    const actor = requireActor(request);
     const { id } = parse(Id, request.params);
     const { page } = parse(PageBody, request.body);
-    const job = await getJob(deps.pool, id);
-    if (!job) throw new HttpProblem(404, "Unknown retake job", "No retake job " + id + ".");
+    const job = await requireJob(id);
+    requireOwn(actor, job);
     const book = await requireGuide(deps, job.book_id);
     const first = 1 - book.printed_to_pdf_offset;
     const last = book.page_count - book.printed_to_pdf_offset;
     if (page < first || page > last) {
       throw new HttpProblem(400, "Page out of range", "Printed page " + page + " is not in " + job.book_id + " (" + first + ".." + last + ").");
     }
+    // a submitted photo goes back through validation (and has to be submitted again)
     const { rows } = await deps.pool.query<JobRow>(
       `UPDATE retake_jobs SET page = $2, status = 'uploaded', folio_check = NULL, error = NULL, before = NULL, estimate_usd = NULL,
-              message = 'page set by hand; waiting for the worker to check the photo', updated_at = now()
-        WHERE id = $1 AND kind = 'retake' AND status IN ('validated', 'rejected') RETURNING ` + COLUMNS,
+              submitted_at = NULL, message = 'page set by hand; waiting for the worker to check the photo', updated_at = now()
+        WHERE id = $1 AND kind = 'retake' AND status IN ('validated', 'rejected', 'submitted') RETURNING ` + COLUMNS,
       [id, page],
     );
-    if (!rows[0]) throw new HttpProblem(409, "Wrong job status", "Job " + id + " is " + job.status + "; the page can be set on a validated or rejected photo.");
-    return toJob(rows[0]);
+    if (!rows[0]) throw new HttpProblem(409, "Wrong job status", "Job " + id + " is " + job.status + "; the page can be set on a validated, submitted or rejected photo.");
+    return out(rows[0]);
   });
 
   app.post("/api/retakes/accept", async (request) => {
-    requireToken(request);
+    requireActor(request, true);
     const body = parse(AcceptBody, request.body);
     await requireGuide(deps, body.book);
     await deps.pool.query(
@@ -556,15 +733,15 @@ export function registerRetakeRoutes(app: FastifyInstance, deps: ServerDeps, cfg
   });
 
   app.post("/api/retakes/rollback", async (request, reply) => {
-    requireToken(request);
+    const actor = requireActor(request, true);
     const body = parse(RollbackBody, request.body);
     await requireGuide(deps, body.book);
     const { rows } = await deps.pool.query<JobRow>(
-      `INSERT INTO retake_jobs (book_id, page, kind, status, message) VALUES ($1, $2, 'rollback', 'confirmed', 'rollback queued for the worker')
-       RETURNING ` + COLUMNS,
-      [body.book, body.page],
+      `INSERT INTO retake_jobs (book_id, page, kind, status, message, uploaded_by, decided_by, decided_at)
+       VALUES ($1, $2, 'rollback', 'confirmed', 'rollback queued for the worker', $3, $3, now()) RETURNING ` + COLUMNS,
+      [body.book, body.page, actor.userId],
     );
     reply.code(201);
-    return toJob(rows[0]!);
+    return out(rows[0]!);
   });
 }
