@@ -55,6 +55,21 @@ function shown(p) {
   return rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel : p;
 }
 
+/** Where the web UI listens: WEB_PORT from the environment or .env (compose reads the same), default 3000. */
+function appUrl() {
+  let port = process.env["WEB_PORT"];
+  if (!port) {
+    try {
+      const m = fs.readFileSync(path.join(ROOT, ".env"), "utf8").match(/^\s*WEB_PORT\s*=\s*["']?([^"'\s#]+)/m);
+      if (m) port = m[1];
+    } catch {
+      // no .env: default port
+    }
+  }
+  const [host, p] = port && port.includes(":") ? [port.slice(0, port.lastIndexOf(":")), port.slice(port.lastIndexOf(":") + 1)] : ["", port];
+  return "http://" + (host && host !== "0.0.0.0" ? host : "localhost") + ":" + (p || "3000");
+}
+
 function gb(bytes) {
   return (bytes / 1e9).toFixed(2) + " GB";
 }
@@ -583,9 +598,9 @@ async function importBackup(argv) {
   if (app) {
     log("starting the stack again …");
     await compose(["up", "-d"], { quiet: true });
-    log("app at http://localhost:3000");
+    log("app at " + appUrl());
   } else {
-    log("next: npm run up (app at http://localhost:3000)");
+    log("next: npm run up (app at " + appUrl() + ")");
   }
 }
 

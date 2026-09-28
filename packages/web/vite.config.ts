@@ -12,7 +12,7 @@ const proxy = {
 
 export default defineConfig({
   plugins: [react()],
-  server: { port: 5173, proxy },
+  server: { port: Number(process.env["WEB_DEV_PORT"] || 5173), proxy },
   preview: { port: 4173, proxy },
   build: {
     outDir: "dist",

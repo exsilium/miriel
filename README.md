@@ -66,7 +66,7 @@ Art books (`"kind": "artbook"` in the config) have no text layer and no photos: 
    ```
    The run is resumable: start the same command again and it skips pages that already have valid output.
    Art books without `out/<art id>/`: `npm run py -- scripts/art_label.py --book art1 --workers 4 1-220`, then `npm run py -- scripts/art_qa.py --book art1` (same resumable runner; about 10–20 min per book).
-6. `npm run up` (`docker compose up --build -d`): builds the images, creates the database, applies migrations, starts the app at http://localhost:3000 (on the LAN: `http://<this machine>:3000`).
+6. `npm run up` (`docker compose up --build -d`): builds the images, creates the database, applies migrations, starts the app at http://localhost:3000 (on the LAN: `http://<this machine>:3000`; another port: `WEB_PORT=8000` in `.env`).
 7. `npm run index` (`docker compose --profile index run --rm indexer`): chunks and embeds every guide and art book from `out/` into the database. A few minutes for all six.
 8. Create your admin account: `npm run user -- add <name> --admin` (`docker compose --profile index run --rm indexer user add <name> --admin`). It prints a one-time password; log in with it (top right, "Log in") and choose your own. More accounts are made in the app under your name > Users. Reading and chat stay open without a login unless `AUTH_REQUIRED=true` is set in `.env` (do that when the site is reachable from outside your network; with https also `COOKIE_SECURE=true`).
 
@@ -105,7 +105,7 @@ After the move, a quick check: `npm run py -- scripts/check_offset.py --book vol
 
 | npm | without npm | what |
 | --- | --- | --- |
-| `npm run up` | `docker compose up --build -d` | build and start the stack (app at :3000) |
+| `npm run up` | `docker compose up --build -d` | build and start the stack (app at :3000, `WEB_PORT`) |
 | `npm run down` | `docker compose down` | stop; all data stays |
 | `npm run reset` | `docker compose down -v` | clean slate: drops the database (books, user accounts), thumbnail cache and pending uploads (then `npm run index` and `npm run user -- add <name> --admin`) |
 | `npm run index` | `docker compose --profile index run --rm indexer` | (re)index every book from `out/`; unchanged pages are skipped |
@@ -125,7 +125,7 @@ npm install
 docker compose up -d db
 npm run migrate
 npm run indexer -- ingest --all         # or: ingest --book vol1
-npm run dev                 # api (8080, hot reload) + web (5173, proxies /api)
+npm run dev                 # api (8080, hot reload) + web (5173 or WEB_DEV_PORT, proxies /api)
 npm test
 ```
 
